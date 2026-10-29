@@ -10,3 +10,6 @@ doc-site/.next/
 doc-site/out/
 doc-site/.source/
 .specify/feature.json
+
+# per-agent clones used during parallel implementation
+/.wt/
