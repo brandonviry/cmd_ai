@@ -144,6 +144,23 @@ impl PlainFrontend {
         let _ = self.out.flush();
     }
 
+    /// Text-mode loop (terminal without inline TUI support): prints the prompt marker and
+    /// reads one request. `None` at end of input. Shares the input buffer with approvals.
+    pub fn read_request(&mut self) -> Option<String> {
+        self.close_open_text();
+        let _ = write!(
+            self.err,
+            "{}",
+            self.theme.paint(Role::Accent, text::REPL_PROMPT)
+        );
+        let _ = self.err.flush();
+        let mut line = String::new();
+        match self.input.read_line(&mut line) {
+            Ok(0) | Err(_) => None,
+            Ok(_) => Some(line.trim().to_string()),
+        }
+    }
+
     fn ask(&mut self, question: &str) -> Approval {
         if !self.interactive {
             return Approval::Unavailable;

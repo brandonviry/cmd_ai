@@ -18,7 +18,10 @@ fn err(o: &std::process::Output) -> String {
 /// Messages of the n-th request received by the fake server.
 fn messages(server: &FakeOllama, n: usize) -> Vec<Value> {
     let reqs = server.requests();
-    reqs[n].json()["messages"].as_array().cloned().unwrap_or_default()
+    reqs[n].json()["messages"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
 }
 
 fn tool_messages(server: &FakeOllama, n: usize) -> Vec<String> {
@@ -61,7 +64,12 @@ fn bypass_runs_the_command_and_streams_everything() {
     let home = TempHome::new(&server.base_url(), "", "bypass");
     let o = run_cmd_ai(&home, &["--no-tui", "--prompt", "dis bonjour"], None, &[]);
     let stdout = out(&o);
-    assert_eq!(o.status.code(), Some(0), "stdout: {stdout}\nstderr: {}", err(&o));
+    assert_eq!(
+        o.status.code(),
+        Some(0),
+        "stdout: {stdout}\nstderr: {}",
+        err(&o)
+    );
     assert!(stdout.contains("▶ [1/1]"), "{stdout}");
     assert!(stdout.contains("Dire bonjour"));
     assert!(stdout.contains("$ echo bonjour"));
@@ -96,7 +104,12 @@ fn plan_mode_without_terminal_executes_nothing() {
         "Créer un fichier",
     )]);
     let home = TempHome::new(&server.base_url(), "", "plan");
-    let o = run_cmd_ai(&home, &["--no-tui", "--prompt", "crée un fichier"], None, &[]);
+    let o = run_cmd_ai(
+        &home,
+        &["--no-tui", "--prompt", "crée un fichier"],
+        None,
+        &[],
+    );
     assert_eq!(o.status.code(), Some(3), "{}", err(&o));
     assert!(out(&o).contains("Plan (1 commande)"));
     assert!(err(&o).contains("rien n'est exécuté"));
@@ -120,7 +133,12 @@ fn prompt_file_is_read_before_anything() {
     let user = msgs.iter().find(|m| m["role"] == "user").unwrap();
     assert_eq!(user["content"], "traduis « bonjour » en anglais");
 
-    let o = run_cmd_ai(&home, &["--no-tui", "--prompt-file", "absent.txt"], None, &[]);
+    let o = run_cmd_ai(
+        &home,
+        &["--no-tui", "--prompt-file", "absent.txt"],
+        None,
+        &[],
+    );
     assert_eq!(o.status.code(), Some(2));
 }
 
@@ -130,7 +148,10 @@ fn missing_config_exits_with_4_without_terminal() {
     let o = run_cmd_ai(&home, &["--no-tui", "--prompt", "x"], None, &[]);
     assert_eq!(o.status.code(), Some(4));
     assert!(err(&o).contains("config.example.json"), "{}", err(&o));
-    assert!(!home.config_path().exists(), "never created without consent");
+    assert!(
+        !home.config_path().exists(),
+        "never created without consent"
+    );
 }
 
 #[test]
@@ -159,13 +180,21 @@ fn malformed_tool_calls_are_never_executed() {
 
 #[test]
 fn provider_errors_have_their_own_exit_code() {
-    let server = FakeOllama::with_replies(vec![Reply::Status(401, "{\"error\":\"unauthorized\"}".into(), None)]);
+    let server = FakeOllama::with_replies(vec![Reply::Status(
+        401,
+        "{\"error\":\"unauthorized\"}".into(),
+        None,
+    )]);
     let home = TempHome::new(&server.base_url(), "", "plan");
     let o = run_cmd_ai(&home, &["--no-tui", "--prompt", "x"], None, &[]);
     assert_eq!(o.status.code(), Some(5));
     assert!(err(&o).contains("Clé API refusée"), "{}", err(&o));
 
-    let server = FakeOllama::with_replies(vec![Reply::Status(402, "{\"error\":\"no credits\"}".into(), None)]);
+    let server = FakeOllama::with_replies(vec![Reply::Status(
+        402,
+        "{\"error\":\"no credits\"}".into(),
+        None,
+    )]);
     let home = TempHome::new(&server.base_url(), "", "plan");
     let o = run_cmd_ai(&home, &["--no-tui", "--prompt", "x"], None, &[]);
     assert_eq!(o.status.code(), Some(5));
@@ -204,7 +233,10 @@ fn self_commands_load_skills_without_a_shell() {
     assert_eq!(o.status.code(), Some(0), "{}\n{}", out(&o), err(&o));
     assert!(out(&o).contains("auto-commande : cmd_ai skill projet-test"));
     // Plan mode, no terminal, yet nothing was asked: self-commands need no approval.
-    let sys = messages(&server, 0)[0]["content"].as_str().unwrap_or("").to_string();
+    let sys = messages(&server, 0)[0]["content"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
     assert!(sys.contains("projet-test — Playbook de test"));
     assert!(tool_messages(&server, 1)[0].contains("Étape 1 : lire le README."));
 }
@@ -216,14 +248,18 @@ fn pre_command_hook_can_block() {
         Reply::text("Bloqué par le hook."),
     ]);
     let home = TempHome::new(&server.base_url(), "", "bypass");
-    let mut cfg: Value = serde_json::from_str(&std::fs::read_to_string(home.config_path()).unwrap()).unwrap();
+    let mut cfg: Value =
+        serde_json::from_str(&std::fs::read_to_string(home.config_path()).unwrap()).unwrap();
     cfg["hooks"] = serde_json::json!({ "pre_command": [{ "match": "echo *", "run": "exit 2" }] });
     home.write_config(&cfg.to_string());
     let o = run_cmd_ai(&home, &["--no-tui", "--prompt", "x"], None, &[]);
     assert_eq!(o.status.code(), Some(0), "{}", err(&o));
     let stdout = out(&o);
     assert!(stdout.contains("[hook]"), "{stdout}");
-    assert!(!stdout.contains("│ interdit"), "the command did not run: {stdout}");
+    assert!(
+        !stdout.contains("│ interdit"),
+        "the command did not run: {stdout}"
+    );
     assert!(tool_messages(&server, 1)[0].starts_with("REFUSÉ"));
 }
 
@@ -238,7 +274,10 @@ fn garde_fou_without_terminal_is_refused_in_bypass() {
     assert_eq!(o.status.code(), Some(0), "{}", err(&o));
     assert!(!out(&o).contains("▶ [1/"), "nothing ran");
     let t = tool_messages(&server, 1);
-    assert!(t[0].starts_with("REFUSÉ") && t[0].contains("garde-fou"), "{t:?}");
+    assert!(
+        t[0].starts_with("REFUSÉ") && t[0].contains("garde-fou"),
+        "{t:?}"
+    );
 }
 
 #[test]
@@ -258,14 +297,25 @@ fn failing_command_is_reported_and_exit_code_is_1() {
 fn model_roles_are_resolved() {
     let server = FakeOllama::with_replies(vec![Reply::text("ok")]);
     let home = TempHome::new(&server.base_url(), "", "plan");
-    let mut cfg: Value = serde_json::from_str(&std::fs::read_to_string(home.config_path()).unwrap()).unwrap();
+    let mut cfg: Value =
+        serde_json::from_str(&std::fs::read_to_string(home.config_path()).unwrap()).unwrap();
     cfg["provider"]["roles"] = serde_json::json!({ "fast": "modele-rapide" });
     home.write_config(&cfg.to_string());
-    let o = run_cmd_ai(&home, &["--no-tui", "--model", "fast", "--prompt", "x"], None, &[]);
+    let o = run_cmd_ai(
+        &home,
+        &["--no-tui", "--model", "fast", "--prompt", "x"],
+        None,
+        &[],
+    );
     assert_eq!(o.status.code(), Some(0), "{}", err(&o));
     assert_eq!(server.requests()[0].json()["model"], "modele-rapide");
 
-    let o = run_cmd_ai(&home, &["--no-tui", "--model", "inconnu", "--prompt", "x"], None, &[]);
+    let o = run_cmd_ai(
+        &home,
+        &["--no-tui", "--model", "inconnu", "--prompt", "x"],
+        None,
+        &[],
+    );
     assert_eq!(o.status.code(), Some(4));
     assert!(err(&o).contains("fast"), "lists the roles: {}", err(&o));
 }

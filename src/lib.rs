@@ -260,14 +260,17 @@ pub fn run() -> i32 {
         config,
     };
     if tui {
-        ui::tui::run(session, prompt)
-    } else {
-        run_plain(session, prompt.unwrap_or_default(), stdin_tty)
+        match ui::tui::probe() {
+            Ok(()) => return ui::tui::run(session, prompt),
+            Err(detail) => eprintln!("{}", text::tui_unavailable(&detail)),
+        }
     }
+    run_plain(session, prompt, stdin_tty)
 }
 
-/// TUI fermé: one task, plain text, then exit with the task's code.
-fn run_plain(session: Session, prompt: String, interactive: bool) -> i32 {
+/// TUI fermé. With a prompt: one task, then exit with the task's code. Without (terminal
+/// that cannot host the inline TUI): a line-by-line loop with the same slash commands.
+fn run_plain(session: Session, prompt: Option<String>, interactive: bool) -> i32 {
     let Session {
         client,
         settings,
@@ -278,7 +281,7 @@ fn run_plain(session: Session, prompt: String, interactive: bool) -> i32 {
         redactor,
         home,
         theme,
-        config: _,
+        config,
     } = session;
     let cancel = Arc::new(AtomicBool::new(false));
     platform::install_interrupt_handler(Arc::clone(&cancel));
@@ -302,7 +305,66 @@ fn run_plain(session: Session, prompt: String, interactive: bool) -> i32 {
         redactor,
     );
     agent.session_start(&mut fe);
-    agent.run_task(&prompt, &mut fe).exit_code()
+    if let Some(prompt) = prompt {
+        return agent.run_task(&prompt, &mut fe).exit_code();
+    }
+    fe.event(AgentEvent::Status(agent.status()));
+    while let Some(line) = fe.read_request() {
+        if line.is_empty() {
+            continue;
+        }
+        match line.strip_prefix('/') {
+            Some(cmd) => {
+                if !slash_command(cmd, &mut agent, &mut fe, &config) {
+                    break;
+                }
+            }
+            None => {
+                agent.run_task(&line, &mut fe);
+            }
+        }
+    }
+    fe.event(AgentEvent::Info(text::TUI_BYE.to_string()));
+    0
+}
+
+/// Slash commands of the text-mode loop (same as the TUI). Returns false to quit.
+fn slash_command<B: llm::ChatBackend, E: exec::Executor>(
+    cmd: &str,
+    agent: &mut Agent<'_, B, E>,
+    fe: &mut dyn Frontend,
+    config: &Config,
+) -> bool {
+    let mut parts = cmd.splitn(2, char::is_whitespace);
+    let name = parts.next().unwrap_or("").to_lowercase();
+    let arg = parts.next().map(str::trim).filter(|a| !a.is_empty());
+    match name.as_str() {
+        "aide" | "help" | "?" => fe.event(AgentEvent::Info(text::TUI_HELP.to_string())),
+        "plan" => {
+            agent.set_mode(config::PermissionMode::Plan);
+            fe.event(AgentEvent::Info(text::tui_mode_set(text::MODE_PLAN)));
+        }
+        "bypass" => {
+            agent.set_mode(config::PermissionMode::Bypass);
+            fe.event(AgentEvent::Info(text::tui_mode_set(text::MODE_BYPASS)));
+        }
+        "model" | "modele" | "modèle" => match config.resolve_model(arg) {
+            Ok(m) => {
+                fe.event(AgentEvent::Info(text::tui_model_set(&m)));
+                agent.set_model(m);
+            }
+            Err(e) => fe.event(AgentEvent::Error(text::config_error(&e))),
+        },
+        "effacer" | "clear" => {
+            agent.clear_history();
+            fe.event(AgentEvent::Info(text::TUI_CLEARED.to_string()));
+        }
+        "quitter" | "quit" | "exit" => return false,
+        _ => fe.event(AgentEvent::Warning(text::tui_unknown_command(&format!(
+            "/{cmd}"
+        )))),
+    }
+    true
 }
 
 /// Default shell first (FR-031), then the other shells found on this host.

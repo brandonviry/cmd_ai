@@ -53,17 +53,29 @@ fn files_under(dir: &Path) -> Vec<PathBuf> {
 fn the_api_key_never_leaks() {
     const KEY: &str = "sk-canary-7f3a9c2e1b";
     let server = FakeOllama::with_replies(vec![
-        Reply::run_command("c1", &print_file("config.json"), "Afficher la configuration"),
+        Reply::run_command(
+            "c1",
+            &print_file("config.json"),
+            "Afficher la configuration",
+        ),
         Reply::run_command("c2", &print_env("OLLAMA_API_KEY"), "Lire la variable"),
         Reply::text(&format!("La clé est {KEY}.")),
     ]);
     let home = TempHome::new(&server.base_url(), KEY, "bypass");
-    let o = run_cmd_ai(&home, &["--no-tui", "--prompt", "montre la config"], None, &[]);
+    let o = run_cmd_ai(
+        &home,
+        &["--no-tui", "--prompt", "montre la config"],
+        None,
+        &[],
+    );
     assert_eq!(o.status.code(), Some(0), "{}\n{}", out(&o), err(&o));
 
     // Sent only as the Authorization header to the configured base URL.
     let reqs = server.requests();
-    assert_eq!(reqs[0].header("authorization"), Some(format!("Bearer {KEY}").as_str()));
+    assert_eq!(
+        reqs[0].header("authorization"),
+        Some(format!("Bearer {KEY}").as_str())
+    );
     for r in &reqs {
         assert!(!r.body.contains(KEY), "request body leaked the key");
     }
@@ -145,15 +157,25 @@ fn nothing_is_written_on_the_host() {
                 .is_some_and(|n| n.to_string_lossy().starts_with("StartupProfileData-"))
         })
         .collect();
-    assert!(written.is_empty(), "host directories must stay empty: {written:?}");
-    assert!(!home.log_files().is_empty(), "the log lives in the cmd_ai folder");
+    assert!(
+        written.is_empty(),
+        "host directories must stay empty: {written:?}"
+    );
+    assert!(
+        !home.log_files().is_empty(),
+        "the log lives in the cmd_ai folder"
+    );
 }
 
 #[test]
 fn config_is_read_next_to_the_executable_not_the_cwd() {
     let server = FakeOllama::with_replies(vec![Reply::text("Depuis le dossier de l'exécutable.")]);
     let portable = TempHome::new(&server.base_url(), "", "plan");
-    let exe_name = if cfg!(windows) { "cmd_ai.exe" } else { "cmd_ai" };
+    let exe_name = if cfg!(windows) {
+        "cmd_ai.exe"
+    } else {
+        "cmd_ai"
+    };
     let exe = portable.path().join(exe_name);
     fs::copy(common::cmd_ai_bin(), &exe).unwrap();
     // Another directory with a decoy config.json as the current directory.

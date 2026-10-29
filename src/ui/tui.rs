@@ -621,6 +621,16 @@ fn new_terminal() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
     )
 }
 
+/// Checks that the terminal supports what the inline viewport needs (raw mode and the
+/// cursor position query). Some consoles never answer the query: lib.rs then falls back to
+/// the plain text mode instead of failing.
+pub fn probe() -> Result<(), String> {
+    terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+    let result = cursor::position().map(|_| ()).map_err(|e| e.to_string());
+    let _ = terminal::disable_raw_mode();
+    result
+}
+
 fn restore_terminal() {
     let _ = terminal::disable_raw_mode();
     let _ = execute!(io::stdout(), cursor::Show);
@@ -759,7 +769,7 @@ pub fn run(session: Session, initial_prompt: Option<String>) -> i32 {
         Ok(()) => 0,
         Err(e) => {
             restore_terminal();
-            eprintln!("{}", text::tool_spawn_failed(&e.to_string()));
+            eprintln!("{}", text::tui_error(&e.to_string()));
             1
         }
     };

@@ -1071,6 +1071,17 @@ pub const TUI_HELP: &str = "Commandes : /aide · /plan (mode plan) · /bypass (s
 pub const TUI_CLEARED: &str = "Conversation effacée.";
 pub const TUI_BYE: &str = "À bientôt.";
 pub const TUI_BUSY: &str = "Une tâche est en cours : attendez la fin ou appuyez sur Échap.";
+pub const REPL_PROMPT: &str = "› ";
+
+pub fn tui_unavailable(detail: &str) -> String {
+    format!(
+        "Le TUI ne peut pas démarrer dans ce terminal ({detail}) : passage en mode texte. Tapez vos demandes ligne par ligne (/aide pour l'aide, /quitter pour sortir)."
+    )
+}
+
+pub fn tui_error(detail: &str) -> String {
+    format!("Erreur du terminal : {detail}")
+}
 
 pub fn tui_mode_set(mode: &str) -> String {
     format!("Mode {mode} activé.")
