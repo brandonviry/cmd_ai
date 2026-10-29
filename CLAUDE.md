@@ -2,6 +2,14 @@
 
 > Agent TUI en Rust, portable sur clé USB, dont le **seul tool** est l'exécution de commandes shell (PowerShell, Bash, CMD) sous Windows, Linux et macOS. Le plus léger possible.
 
+## Où on en est (mis à jour le 2026-10-29)
+
+- **V1 livrée : `v0.1.0`**, jugée « largement satisfaisante » par le propriétaire. Spec `001-cmd-ai-v1` : 35/35 tâches.
+- En ligne : dépôt public <https://github.com/brandonviry/cmd_ai> · doc <https://brandonviry.github.io/cmd_ai/> (GitHub Pages, rebuild automatique par `pages.yml` à chaque push sur `doc/`, `bug/` ou `doc-site/` ; pas de Vercel) · release <https://github.com/brandonviry/cmd_ai/releases/tag/v0.1.0> (zip portable 4 binaires + `SHA256SUMS.txt`).
+- Vérifié : CI verte sur Windows / Linux / macOS (11 jobs, dont le vrai TUI en pseudo-terminal) ; **test réel avec Ollama Cloud fait par le propriétaire** (2026-10-29).
+- En attente : jeton Google Search Console → variable de dépôt `GOOGLE_SITE_VERIFICATION` (le workflow Pages l'injecte déjà dans la balise meta). Non encore cochés dans [`doc/tests-manuels.md`](doc/tests-manuels.md) : UAC, `sudo` interactif, Gatekeeper, clé exFAT sur chaque OS.
+- Pour reprendre : une nouvelle fonctionnalité = nouvelle spec `specs/002-…` via `/speckit-specify` (après l'avoir ajoutée à `IDEE.md`, constitution « Périmètre »). Publier = pousser sur `main` ; nouvelle version = bump `Cargo.toml` + `CHANGELOG.md` + tag `vX.Y.Z` (le workflow Release vérifie que le tag correspond à `Cargo.toml`).
+
 ## Où lire quoi
 
 | Besoin | Fichier |

@@ -77,6 +77,8 @@ Obligatoire **après tout changement du modèle par défaut** (dans `config.exam
 - [ ] Une clé invalide donne le message « clé » et le code 5 ; un `base_url` injoignable donne le message réseau et le code 5, sans aucune commande exécutée.
 - [ ] La clé API n'apparaît dans aucun fichier de `log/` (rechercher sa valeur).
 
+**Campagne 0.1.0 (29/10/2026)** : test de fumée contre Ollama Cloud réalisé par le propriétaire avec sa clé, sur clé USB — V1 validée.
+
 ## Après la campagne
 
 - [ ] Toutes les cases sont cochées, ou chaque échec a sa fiche dans `bug/` et son issue GitHub (voir [Bugs](./bugs.md)).

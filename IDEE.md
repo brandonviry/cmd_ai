@@ -122,6 +122,8 @@ En résumé : **les hooks sont la version système et robuste ; les skills, la v
 
 Les choix sont notés ici au fur et à mesure — quand je passerai au dev, je saurai encore ce que je vais utiliser.
 
+> **État au 29/10/2026 : V1 livrée (`v0.1.0`)** et testée en réel avec Ollama Cloud. Code : <https://github.com/brandonviry/cmd_ai> · doc : <https://brandonviry.github.io/cmd_ai/> · release : <https://github.com/brandonviry/cmd_ai/releases/tag/v0.1.0>. Toute nouvelle idée s'ajoute d'abord ici, puis devient une spec Spec Kit (`specs/002-…`).
+
 ### Hébergement
 
 Le projet sera hébergé sur **GitHub**, en dépôt **public** (la doc est servie gratuitement par GitHub Pages). Le dossier du projet doit être **son propre dépôt git** — aujourd'hui, c'est `D:\` entier qui est un dépôt : `git init` dans le projet avant toute chose.
