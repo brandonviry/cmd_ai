@@ -1,0 +1,47 @@
+# Text files are stored with LF and checked out with LF on every OS (Rust, Markdown, YAML,
+# JSON...): the portable folder is shared by Windows, Linux and macOS.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# POSIX launchers must never get a CR (`/bin/sh^M: bad interpreter`).
+*.sh text eol=lf
+*.command text eol=lf
+
+# Binary files: no conversion, no textual diff.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.webp binary
+*.avif binary
+*.bmp binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.xz binary
+*.zst binary
+*.7z binary
+*.tar binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.a binary
+*.lib binary
+*.pdb binary
+*.wasm binary
+*.mp3 binary
+*.mp4 binary
+*.webm binary

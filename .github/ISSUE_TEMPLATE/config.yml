@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Signaler une faille de sécurité (privé)
+    url: https://github.com/brandonviry/cmd_ai/security/advisories/new
+    about: Fuite de la clé API, écriture hors du dossier de cmd_ai, contournement du mode plan ou des garde-fous… Jamais en issue publique (voir SECURITY.md).
+  - name: Documentation
+    url: https://github.com/brandonviry/cmd_ai/tree/main/doc
+    about: Installation, configuration, modes, droits, portabilité et limites de la V1 non signée.
