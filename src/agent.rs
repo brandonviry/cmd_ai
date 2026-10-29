@@ -11,9 +11,11 @@ use std::time::{Duration, Instant};
 
 use crate::config::{HooksConfig, Limits, PermissionMode};
 use crate::exec::{ExecMode, ExecResult, ExecSpec, Executor};
-use crate::hooks::{self, FileSnapshot, HookRun};
 use crate::home::Home;
-use crate::llm::{ChatBackend, ChatRequest, ChatResponse, LlmError, Message, Role, StreamEvent, ToolCall};
+use crate::hooks::{self, FileSnapshot, HookRun};
+use crate::llm::{
+    ChatBackend, ChatRequest, ChatResponse, LlmError, Message, Role, StreamEvent, ToolCall,
+};
 use crate::log::SessionLog;
 use crate::memory::{self, Memory};
 use crate::output;
@@ -25,7 +27,9 @@ use crate::shell::{self, Shell, ShellInfo};
 use crate::skills::{self, Skill};
 use crate::text;
 use crate::tool::{self, SelfCommand};
-use crate::ui::{AgentEvent, Approval, ApprovalRequest, Frontend, PlanStep, StatusLine, TaskOutcome};
+use crate::ui::{
+    AgentEvent, Approval, ApprovalRequest, Frontend, PlanStep, StatusLine, TaskOutcome,
+};
 
 /// Consecutive invalid tool calls tolerated before the task stops (FR-012).
 pub const MAX_INVALID_CALLS: u32 = 2;
@@ -82,7 +86,9 @@ impl Elevator for SystemElevator {
     }
 
     fn sudo_validate(&mut self) -> Option<i32> {
-        crate::exec::run_inherited_program("sudo", &["-v"]).ok().flatten()
+        crate::exec::run_inherited_program("sudo", &["-v"])
+            .ok()
+            .flatten()
     }
 
     #[cfg(windows)]
@@ -303,7 +309,8 @@ impl<'a, B: ChatBackend, E: Executor> Agent<'a, B, E> {
             };
             if resp.tool_calls.is_empty() {
                 let answer = self.redactor.redact(resp.content.trim());
-                self.history.push(Message::assistant(answer.clone(), Vec::new()));
+                self.history
+                    .push(Message::assistant(answer.clone(), Vec::new()));
                 self.log.line("ANSWER", &answer);
                 ui.event(AgentEvent::AssistantDone(answer));
                 return if st.last_failed {
@@ -314,7 +321,8 @@ impl<'a, B: ChatBackend, E: Executor> Agent<'a, B, E> {
             }
             let calls = resp.tool_calls.clone();
             let content = self.redactor.redact(&resp.content);
-            self.history.push(Message::assistant(content, calls.clone()));
+            self.history
+                .push(Message::assistant(content, calls.clone()));
             let mut stop: Option<TaskOutcome> = None;
             for call in &calls {
                 if stop.is_some() {
@@ -340,7 +348,10 @@ impl<'a, B: ChatBackend, E: Executor> Agent<'a, B, E> {
     fn trim_history(&mut self) {
         let size = |m: &Message| {
             m.content.as_ref().map_or(0, String::len)
-                + m.tool_calls.iter().map(|c| c.arguments.len() + c.name.len()).sum::<usize>()
+                + m.tool_calls
+                    .iter()
+                    .map(|c| c.arguments.len() + c.name.len())
+                    .sum::<usize>()
         };
         loop {
             let total: usize = self.history.iter().map(size).sum();
@@ -528,7 +539,9 @@ impl<'a, B: ChatBackend, E: Executor> Agent<'a, B, E> {
                 let detail = self.redact(&e.to_string());
                 self.log.line("INVALID", &detail);
                 if st.invalid_streak > MAX_INVALID_CALLS {
-                    ui.event(AgentEvent::Error(text::invalid_calls_exhausted(st.invalid_streak)));
+                    ui.event(AgentEvent::Error(text::invalid_calls_exhausted(
+                        st.invalid_streak,
+                    )));
                     return Flow::Stop(TaskOutcome::Failed, text::tool_invalid_call(&detail));
                 }
                 return Flow::Continue(text::tool_invalid_call(&detail));
@@ -800,7 +813,9 @@ impl<'a, B: ChatBackend, E: Executor> Agent<'a, B, E> {
             st.last_failed = true;
             st.fail_streak += 1;
             if st.fail_streak > self.s.limits.max_fixes {
-                ui.event(AgentEvent::Error(text::fixes_exhausted(self.s.limits.max_fixes)));
+                ui.event(AgentEvent::Error(text::fixes_exhausted(
+                    self.s.limits.max_fixes,
+                )));
                 return Flow::Stop(TaskOutcome::Failed, msg);
             }
         } else {
@@ -970,7 +985,8 @@ impl<'a, B: ChatBackend, E: Executor> Agent<'a, B, E> {
             step: step.clone(),
             hook: true,
         });
-        self.log.line("HOOK", &format!("{} :: {}", h.event, step.command));
+        self.log
+            .line("HOOK", &format!("{} :: {}", h.event, step.command));
         let spec = ExecSpec {
             shell,
             command: h.run.clone(),
@@ -1003,7 +1019,13 @@ impl<'a, B: ChatBackend, E: Executor> Agent<'a, B, E> {
                 });
                 self.log.line(
                     "HOOK-EXIT",
-                    &text::tool_result_header(r.code, r.duration.as_secs_f64(), r.timed_out, r.cancelled, false),
+                    &text::tool_result_header(
+                        r.code,
+                        r.duration.as_secs_f64(),
+                        r.timed_out,
+                        r.cancelled,
+                        false,
+                    ),
                 );
                 r.code
             }
@@ -1109,7 +1131,10 @@ mod tests {
     }
 
     fn cmd(id: &str, command: &str) -> ChatResponse {
-        call_args(id, serde_json::json!({"command": command, "purpose": "test"}))
+        call_args(
+            id,
+            serde_json::json!({"command": command, "purpose": "test"}),
+        )
     }
 
     #[derive(Default)]
@@ -1128,10 +1153,10 @@ mod tests {
             _cancel: &AtomicBool,
         ) -> std::io::Result<ExecResult> {
             self.specs.push(spec.clone());
-            let (code, out, err) = self
-                .results
-                .pop_front()
-                .unwrap_or((Some(0), "ok\n".into(), String::new()));
+            let (code, out, err) =
+                self.results
+                    .pop_front()
+                    .unwrap_or((Some(0), "ok\n".into(), String::new()));
             on_chunk(Stream::Stdout, &out);
             if !err.is_empty() {
                 on_chunk(Stream::Stderr, &err);
@@ -1171,7 +1196,11 @@ mod tests {
         }
         fn relaunch(&mut self, state: &ResumeState) -> Result<(), String> {
             self.relaunched.push(state.clone());
-            if self.relaunch_ok { Ok(()) } else { Err("refusé".into()) }
+            if self.relaunch_ok {
+                Ok(())
+            } else {
+                Err("refusé".into())
+            }
         }
     }
 
@@ -1194,7 +1223,11 @@ mod tests {
             }
         }
         fn texts(&self) -> String {
-            self.events.iter().map(|e| format!("{e:?}")).collect::<Vec<_>>().join("\n")
+            self.events
+                .iter()
+                .map(|e| format!("{e:?}"))
+                .collect::<Vec<_>>()
+                .join("\n")
         }
     }
 
@@ -1216,7 +1249,11 @@ mod tests {
     }
 
     fn settings(mode: PermissionMode, os: &'static str) -> AgentSettings {
-        let shell = if os == "windows" { Shell::Pwsh } else { Shell::Bash };
+        let shell = if os == "windows" {
+            Shell::Pwsh
+        } else {
+            Shell::Bash
+        };
         AgentSettings {
             mode,
             model: "modele-test".into(),
@@ -1299,7 +1336,14 @@ mod tests {
         let backend = FakeBackend::new(vec![Ok(cmd("c1", "echo bonjour")), Ok(answer("Fait."))]);
         let mut w = World::new();
         let mut ui = FakeUi::new(vec![]);
-        let out = run(&backend, &mut w, settings(PermissionMode::Bypass, "linux"), vec![], &mut ui, "dis bonjour");
+        let out = run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Bypass, "linux"),
+            vec![],
+            &mut ui,
+            "dis bonjour",
+        );
         assert_eq!(out, TaskOutcome::Done);
         assert!(ui.asked.is_empty());
         assert_eq!(w.exec.specs.len(), 1);
@@ -1308,8 +1352,16 @@ mod tests {
         let msg = last_tool_message(&backend);
         assert!(msg.starts_with("code de sortie : 0"), "{msg}");
         assert!(msg.contains(output::UNTRUSTED_OPEN));
-        assert!(ui.events.iter().any(|e| matches!(e, AgentEvent::AssistantDone(t) if t == "Fait.")));
-        assert!(ui.events.iter().any(|e| matches!(e, AgentEvent::Progress { done: 1, total: 1 })));
+        assert!(
+            ui.events
+                .iter()
+                .any(|e| matches!(e, AgentEvent::AssistantDone(t) if t == "Fait."))
+        );
+        assert!(
+            ui.events
+                .iter()
+                .any(|e| matches!(e, AgentEvent::Progress { done: 1, total: 1 }))
+        );
     }
 
     #[test]
@@ -1317,7 +1369,14 @@ mod tests {
         let backend = FakeBackend::new(vec![Ok(answer("Bonjour."))]);
         let mut w = World::new();
         let mut ui = FakeUi::new(vec![]);
-        run(&backend, &mut w, settings(PermissionMode::Plan, "linux"), vec![], &mut ui, "salut");
+        run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Plan, "linux"),
+            vec![],
+            &mut ui,
+            "salut",
+        );
         let reqs = backend.requests.borrow();
         let tools = reqs[0].tools.as_array().expect("tools array");
         assert_eq!(tools.len(), 1);
@@ -1327,7 +1386,10 @@ mod tests {
     #[test]
     fn plan_is_approved_once_and_closed() {
         let backend = FakeBackend::new(vec![
-            Ok(call_args("c1", serde_json::json!({"command": "ls", "purpose": "lister", "plan": ["ls", "pwd"]}))),
+            Ok(call_args(
+                "c1",
+                serde_json::json!({"command": "ls", "purpose": "lister", "plan": ["ls", "pwd"]}),
+            )),
             Ok(cmd("c2", "pwd")),
             Ok(cmd("c3", "whoami")),
             Ok(answer("Fini.")),
@@ -1335,14 +1397,30 @@ mod tests {
         let mut w = World::new();
         // Plan approved, then the out-of-plan command refused.
         let mut ui = FakeUi::new(vec![Approval::Yes, Approval::No]);
-        let out = run(&backend, &mut w, settings(PermissionMode::Plan, "linux"), vec![], &mut ui, "x");
+        let out = run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Plan, "linux"),
+            vec![],
+            &mut ui,
+            "x",
+        );
         assert_eq!(out, TaskOutcome::Done);
         assert_eq!(ui.asked.len(), 2);
         assert!(matches!(&ui.asked[0], ApprovalRequest::Plan(steps) if steps.len() == 2));
-        assert!(matches!(&ui.asked[1], ApprovalRequest::Single { step, garde_fou: None } if step.command == "whoami"));
+        assert!(
+            matches!(&ui.asked[1], ApprovalRequest::Single { step, garde_fou: None } if step.command == "whoami")
+        );
         let ran: Vec<_> = w.exec.specs.iter().map(|s| s.command.as_str()).collect();
         assert_eq!(ran, vec!["ls", "pwd"]);
-        assert!(ui.events.iter().any(|e| matches!(e, AgentEvent::CommandStart { index: 2, total: 2, .. })));
+        assert!(ui.events.iter().any(|e| matches!(
+            e,
+            AgentEvent::CommandStart {
+                index: 2,
+                total: 2,
+                ..
+            }
+        )));
         // The refusal reached the model.
         let reqs = backend.requests.borrow();
         let tool_msgs: Vec<String> = reqs[3]
@@ -1359,7 +1437,14 @@ mod tests {
         let backend = FakeBackend::new(vec![Ok(cmd("c1", "ls"))]);
         let mut w = World::new();
         let mut ui = FakeUi::new(vec![Approval::No]);
-        let out = run(&backend, &mut w, settings(PermissionMode::Plan, "linux"), vec![], &mut ui, "x");
+        let out = run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Plan, "linux"),
+            vec![],
+            &mut ui,
+            "x",
+        );
         assert_eq!(out, TaskOutcome::PlanRejected);
         assert!(w.exec.specs.is_empty());
         assert_eq!(out.exit_code(), 3);
@@ -1370,7 +1455,14 @@ mod tests {
         let backend = FakeBackend::new(vec![Ok(cmd("c1", "ls"))]);
         let mut w = World::new();
         let mut ui = FakeUi::new(vec![Approval::Unavailable]);
-        let out = run(&backend, &mut w, settings(PermissionMode::Plan, "linux"), vec![], &mut ui, "x");
+        let out = run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Plan, "linux"),
+            vec![],
+            &mut ui,
+            "x",
+        );
         assert_eq!(out, TaskOutcome::PlanNotApproved);
         assert!(w.exec.specs.is_empty());
         assert!(ui.events.iter().any(|e| matches!(e, AgentEvent::Plan(_))));
@@ -1382,16 +1474,32 @@ mod tests {
             Ok(ChatResponse {
                 content: String::new(),
                 reasoning: String::new(),
-                tool_calls: vec![ToolCall { id: "b".into(), name: "run_command".into(), arguments: "{not json".into() }],
+                tool_calls: vec![ToolCall {
+                    id: "b".into(),
+                    name: "run_command".into(),
+                    arguments: "{not json".into(),
+                }],
                 usage: None,
                 finish_reason: None,
             })
         };
         // Two invalid then a valid one: executed.
-        let backend = FakeBackend::new(vec![bad(), bad(), Ok(cmd("c", "echo ok")), Ok(answer("ok"))]);
+        let backend = FakeBackend::new(vec![
+            bad(),
+            bad(),
+            Ok(cmd("c", "echo ok")),
+            Ok(answer("ok")),
+        ]);
         let mut w = World::new();
         let mut ui = FakeUi::new(vec![]);
-        let out = run(&backend, &mut w, settings(PermissionMode::Bypass, "linux"), vec![], &mut ui, "x");
+        let out = run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Bypass, "linux"),
+            vec![],
+            &mut ui,
+            "x",
+        );
         assert_eq!(out, TaskOutcome::Done);
         assert_eq!(w.exec.specs.len(), 1);
 
@@ -1399,7 +1507,14 @@ mod tests {
         let backend = FakeBackend::new(vec![bad(), bad(), bad()]);
         let mut w = World::new();
         let mut ui = FakeUi::new(vec![]);
-        let out = run(&backend, &mut w, settings(PermissionMode::Bypass, "linux"), vec![], &mut ui, "x");
+        let out = run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Bypass, "linux"),
+            vec![],
+            &mut ui,
+            "x",
+        );
         assert_eq!(out, TaskOutcome::Failed);
         assert!(w.exec.specs.is_empty());
     }
@@ -1408,7 +1523,11 @@ mod tests {
     fn step_limit_stops_the_task() {
         let mut s = settings(PermissionMode::Bypass, "linux");
         s.limits.max_steps = 2;
-        let backend = FakeBackend::new(vec![Ok(cmd("a", "echo 1")), Ok(cmd("b", "echo 2")), Ok(cmd("c", "echo 3"))]);
+        let backend = FakeBackend::new(vec![
+            Ok(cmd("a", "echo 1")),
+            Ok(cmd("b", "echo 2")),
+            Ok(cmd("c", "echo 3")),
+        ]);
         let mut w = World::new();
         let mut ui = FakeUi::new(vec![]);
         let out = run(&backend, &mut w, s, vec![], &mut ui, "x");
@@ -1426,33 +1545,71 @@ mod tests {
         ]);
         let mut w = World::new();
         for _ in 0..3 {
-            w.exec.results.push_back((Some(1), String::new(), "erreur\n".into()));
+            w.exec
+                .results
+                .push_back((Some(1), String::new(), "erreur\n".into()));
         }
         let mut ui = FakeUi::new(vec![]);
-        let out = run(&backend, &mut w, settings(PermissionMode::Bypass, "linux"), vec![], &mut ui, "x");
+        let out = run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Bypass, "linux"),
+            vec![],
+            &mut ui,
+            "x",
+        );
         assert_eq!(out, TaskOutcome::Failed);
         assert_eq!(w.exec.specs.len(), 3, "original + 2 corrections");
     }
 
     #[test]
     fn a_failure_then_a_success_resets_the_streak() {
-        let backend = FakeBackend::new(vec![Ok(cmd("a", "bad")), Ok(cmd("b", "good")), Ok(answer("ok"))]);
+        let backend = FakeBackend::new(vec![
+            Ok(cmd("a", "bad")),
+            Ok(cmd("b", "good")),
+            Ok(answer("ok")),
+        ]);
         let mut w = World::new();
-        w.exec.results.push_back((Some(1), String::new(), "x".into()));
+        w.exec
+            .results
+            .push_back((Some(1), String::new(), "x".into()));
         let mut ui = FakeUi::new(vec![]);
-        let out = run(&backend, &mut w, settings(PermissionMode::Bypass, "linux"), vec![], &mut ui, "x");
+        let out = run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Bypass, "linux"),
+            vec![],
+            &mut ui,
+            "x",
+        );
         assert_eq!(out, TaskOutcome::Done);
     }
 
     #[test]
     fn garde_fou_asks_even_in_bypass() {
-        let backend = FakeBackend::new(vec![Ok(cmd("a", "rm -rf /")), Ok(answer("Je ne l'ai pas fait."))]);
+        let backend = FakeBackend::new(vec![
+            Ok(cmd("a", "rm -rf /")),
+            Ok(answer("Je ne l'ai pas fait.")),
+        ]);
         let mut w = World::new();
         let mut ui = FakeUi::new(vec![Approval::No]);
-        let out = run(&backend, &mut w, settings(PermissionMode::Bypass, "linux"), vec![], &mut ui, "x");
+        let out = run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Bypass, "linux"),
+            vec![],
+            &mut ui,
+            "x",
+        );
         assert_eq!(out, TaskOutcome::Done);
         assert!(w.exec.specs.is_empty());
-        assert!(matches!(&ui.asked[0], ApprovalRequest::Single { garde_fou: Some(_), .. }));
+        assert!(matches!(
+            &ui.asked[0],
+            ApprovalRequest::Single {
+                garde_fou: Some(_),
+                ..
+            }
+        ));
         assert!(last_tool_message(&backend).starts_with("REFUSÉ"));
     }
 
@@ -1471,32 +1628,70 @@ mod tests {
         ]);
         let mut w = World::new();
         let mut ui = FakeUi::new(vec![]);
-        let out = run(&backend, &mut w, settings(PermissionMode::Plan, "linux"), vec![skill], &mut ui, "x");
+        let out = run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Plan, "linux"),
+            vec![skill],
+            &mut ui,
+            "x",
+        );
         assert_eq!(out, TaskOutcome::Done);
         assert!(w.exec.specs.is_empty());
         assert!(ui.asked.is_empty(), "self-commands need no approval");
         let reqs = backend.requests.borrow();
-        let tools: Vec<String> = reqs[3].messages.iter().filter(|m| m.role == Role::Tool).filter_map(|m| m.content.clone()).collect();
+        let tools: Vec<String> = reqs[3]
+            .messages
+            .iter()
+            .filter(|m| m.role == Role::Tool)
+            .filter_map(|m| m.content.clone())
+            .collect();
         assert!(tools[0].contains("Lance npm install."));
         assert!(tools[1].starts_with("ERREUR"));
         assert_eq!(w.memory.notes().len(), 1);
         // The skill catalog is in the system prompt.
-        assert!(reqs[0].messages[0].content.as_deref().unwrap_or("").contains("projet-npm — Projet npm"));
+        assert!(
+            reqs[0].messages[0]
+                .content
+                .as_deref()
+                .unwrap_or("")
+                .contains("projet-npm — Projet npm")
+        );
     }
 
     #[test]
     fn provider_retries_and_errors() {
         // 503 then success: retried.
-        let backend = FakeBackend::new(vec![Err(LlmError::Server(503, "x".into())), Ok(answer("ok"))]);
+        let backend = FakeBackend::new(vec![
+            Err(LlmError::Server(503, "x".into())),
+            Ok(answer("ok")),
+        ]);
         let mut w = World::new();
         let mut ui = FakeUi::new(vec![]);
-        assert_eq!(run(&backend, &mut w, settings(PermissionMode::Plan, "linux"), vec![], &mut ui, "x"), TaskOutcome::Done);
+        assert_eq!(
+            run(
+                &backend,
+                &mut w,
+                settings(PermissionMode::Plan, "linux"),
+                vec![],
+                &mut ui,
+                "x"
+            ),
+            TaskOutcome::Done
+        );
         assert_eq!(backend.requests.borrow().len(), 2);
 
         // Auth error: no retry, provider error (exit code 5).
         let backend = FakeBackend::new(vec![Err(LlmError::Auth("bad".into()))]);
         let mut ui = FakeUi::new(vec![]);
-        let out = run(&backend, &mut w, settings(PermissionMode::Plan, "linux"), vec![], &mut ui, "x");
+        let out = run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Plan, "linux"),
+            vec![],
+            &mut ui,
+            "x",
+        );
         assert_eq!(out, TaskOutcome::ProviderError);
         assert_eq!(out.exit_code(), 5);
         assert_eq!(backend.requests.borrow().len(), 1);
@@ -1505,14 +1700,28 @@ mod tests {
         // Empty answer: retried exactly once.
         let backend = FakeBackend::new(vec![Err(LlmError::Empty), Err(LlmError::Empty)]);
         let mut ui = FakeUi::new(vec![]);
-        let out = run(&backend, &mut w, settings(PermissionMode::Plan, "linux"), vec![], &mut ui, "x");
+        let out = run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Plan, "linux"),
+            vec![],
+            &mut ui,
+            "x",
+        );
         assert_eq!(out, TaskOutcome::ProviderError);
         assert_eq!(backend.requests.borrow().len(), 2);
 
         // 400 is not retried.
         let backend = FakeBackend::new(vec![Err(LlmError::Server(400, "bad".into()))]);
         let mut ui = FakeUi::new(vec![]);
-        run(&backend, &mut w, settings(PermissionMode::Plan, "linux"), vec![], &mut ui, "x");
+        run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Plan, "linux"),
+            vec![],
+            &mut ui,
+            "x",
+        );
         assert_eq!(backend.requests.borrow().len(), 1);
     }
 
@@ -1522,7 +1731,14 @@ mod tests {
         let mut w = World::new();
         w.exec.cancel_on_run = true;
         let mut ui = FakeUi::new(vec![]);
-        let out = run(&backend, &mut w, settings(PermissionMode::Bypass, "linux"), vec![], &mut ui, "x");
+        let out = run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Bypass, "linux"),
+            vec![],
+            &mut ui,
+            "x",
+        );
         assert_eq!(out, TaskOutcome::Cancelled);
         assert_eq!(out.exit_code(), 130);
         assert_eq!(w.exec.specs.len(), 1);
@@ -1530,38 +1746,76 @@ mod tests {
 
     #[test]
     fn secrets_are_masked_everywhere() {
-        let backend = FakeBackend::new(vec![Ok(cmd("a", "cat config.json")), Ok(answer("La clé est sk-canary-1234"))]);
+        let backend = FakeBackend::new(vec![
+            Ok(cmd("a", "cat config.json")),
+            Ok(answer("La clé est sk-canary-1234")),
+        ]);
         let mut w = World::new();
-        w.exec.results.push_back((Some(0), "{\"api_key\": \"sk-canary-1234\"}".into(), String::new()));
+        w.exec.results.push_back((
+            Some(0),
+            "{\"api_key\": \"sk-canary-1234\"}".into(),
+            String::new(),
+        ));
         let mut ui = FakeUi::new(vec![]);
-        run(&backend, &mut w, settings(PermissionMode::Bypass, "linux"), vec![], &mut ui, "x");
+        run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Bypass, "linux"),
+            vec![],
+            &mut ui,
+            "x",
+        );
         assert!(!ui.texts().contains("sk-canary-1234"), "{}", ui.texts());
         let reqs = backend.requests.borrow();
-        let all: String = reqs.iter().flat_map(|r| r.messages.iter()).filter_map(|m| m.content.clone()).collect();
+        let all: String = reqs
+            .iter()
+            .flat_map(|r| r.messages.iter())
+            .filter_map(|m| m.content.clone())
+            .collect();
         assert!(!all.contains("sk-canary-1234"));
     }
 
     #[test]
     fn unix_admin_uses_sudo_after_handover() {
         let backend = FakeBackend::new(vec![
-            Ok(call_args("a", serde_json::json!({"command": "apt install htop", "purpose": "installer", "needs_admin": true}))),
+            Ok(call_args(
+                "a",
+                serde_json::json!({"command": "apt install htop", "purpose": "installer", "needs_admin": true}),
+            )),
             Ok(answer("ok")),
         ]);
         let mut w = World::new();
         w.elevator.validate_code = Some(0);
         let mut ui = FakeUi::new(vec![]);
-        let out = run(&backend, &mut w, settings(PermissionMode::Bypass, "linux"), vec![], &mut ui, "x");
+        let out = run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Bypass, "linux"),
+            vec![],
+            &mut ui,
+            "x",
+        );
         assert_eq!(out, TaskOutcome::Done);
         assert_eq!(ui.handovers, 1);
         assert_eq!(w.elevator.validated, 1);
         assert!(w.exec.specs[0].sudo);
 
         // sudo prefix written by the model is stripped and handled by cmd_ai.
-        let backend = FakeBackend::new(vec![Ok(cmd("a", "sudo systemctl restart nginx")), Ok(answer("ok"))]);
+        let backend = FakeBackend::new(vec![
+            Ok(cmd("a", "sudo systemctl restart nginx")),
+            Ok(answer("ok")),
+        ]);
         let mut w = World::new();
         w.elevator.ready = true;
         let mut ui = FakeUi::new(vec![]);
-        run(&backend, &mut w, settings(PermissionMode::Bypass, "linux"), vec![], &mut ui, "x");
+        run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Bypass, "linux"),
+            vec![],
+            &mut ui,
+            "x",
+        );
         assert_eq!(ui.handovers, 0, "credentials already cached");
         assert_eq!(w.exec.specs[0].command, "systemctl restart nginx");
         assert!(w.exec.specs[0].sudo);
@@ -1571,7 +1825,14 @@ mod tests {
         let mut w = World::new();
         w.elevator.validate_code = Some(1);
         let mut ui = FakeUi::new(vec![]);
-        let out = run(&backend, &mut w, settings(PermissionMode::Bypass, "linux"), vec![], &mut ui, "x");
+        let out = run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Bypass, "linux"),
+            vec![],
+            &mut ui,
+            "x",
+        );
         assert_eq!(out, TaskOutcome::Failed);
         assert!(w.exec.specs.is_empty());
     }
@@ -1585,7 +1846,14 @@ mod tests {
         let mut w = World::new();
         w.elevator.relaunch_ok = true;
         let mut ui = FakeUi::new(vec![Approval::Yes]);
-        let out = run(&backend, &mut w, settings(PermissionMode::Bypass, "windows"), vec![], &mut ui, "arrête le spooler");
+        let out = run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Bypass, "windows"),
+            vec![],
+            &mut ui,
+            "arrête le spooler",
+        );
         assert_eq!(out, TaskOutcome::Elevating);
         assert!(w.exec.specs.is_empty());
         assert_eq!(w.elevator.relaunched.len(), 1);
@@ -1593,12 +1861,22 @@ mod tests {
 
         // Refused elevation: the model is told, nothing runs.
         let backend = FakeBackend::new(vec![
-            Ok(call_args("a", serde_json::json!({"command": "Stop-Service Spooler", "purpose": "p", "needs_admin": true}))),
+            Ok(call_args(
+                "a",
+                serde_json::json!({"command": "Stop-Service Spooler", "purpose": "p", "needs_admin": true}),
+            )),
             Ok(answer("ok")),
         ]);
         let mut w = World::new();
         let mut ui = FakeUi::new(vec![Approval::No]);
-        let out = run(&backend, &mut w, settings(PermissionMode::Bypass, "windows"), vec![], &mut ui, "x");
+        let out = run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Bypass, "windows"),
+            vec![],
+            &mut ui,
+            "x",
+        );
         assert_eq!(out, TaskOutcome::Done);
         assert!(w.exec.specs.is_empty());
         assert!(w.elevator.relaunched.is_empty());
@@ -1613,23 +1891,47 @@ mod tests {
             shell: None,
             timeout_secs: None,
         }];
-        let backend = FakeBackend::new(vec![Ok(cmd("a", "git push origin main")), Ok(answer("bloqué"))]);
+        let backend = FakeBackend::new(vec![
+            Ok(cmd("a", "git push origin main")),
+            Ok(answer("bloqué")),
+        ]);
         let mut w = World::new();
-        w.exec.results.push_back((Some(2), String::new(), String::new()));
+        w.exec
+            .results
+            .push_back((Some(2), String::new(), String::new()));
         let mut ui = FakeUi::new(vec![]);
         run(&backend, &mut w, s, vec![], &mut ui, "x");
         assert_eq!(w.exec.specs.len(), 1, "only the hook ran");
-        assert!(w.exec.specs[0].extra_env.iter().any(|(k, _)| k == "CMD_AI_EVENT"));
+        assert!(
+            w.exec.specs[0]
+                .extra_env
+                .iter()
+                .any(|(k, _)| k == "CMD_AI_EVENT")
+        );
         assert!(last_tool_message(&backend).starts_with("REFUSÉ"));
-        assert!(ui.events.iter().any(|e| matches!(e, AgentEvent::CommandStart { hook: true, .. })));
+        assert!(
+            ui.events
+                .iter()
+                .any(|e| matches!(e, AgentEvent::CommandStart { hook: true, .. }))
+        );
     }
 
     #[test]
     fn gui_launchers_are_detached() {
-        let backend = FakeBackend::new(vec![Ok(cmd("a", "xdg-open https://www.youtube.com")), Ok(answer("ok"))]);
+        let backend = FakeBackend::new(vec![
+            Ok(cmd("a", "xdg-open https://www.youtube.com")),
+            Ok(answer("ok")),
+        ]);
         let mut w = World::new();
         let mut ui = FakeUi::new(vec![]);
-        run(&backend, &mut w, settings(PermissionMode::Bypass, "linux"), vec![], &mut ui, "ouvre youtube");
+        run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Bypass, "linux"),
+            vec![],
+            &mut ui,
+            "ouvre youtube",
+        );
         assert_eq!(w.exec.specs[0].mode, ExecMode::Detached);
     }
 
@@ -1640,8 +1942,16 @@ mod tests {
             content: String::new(),
             reasoning: String::new(),
             tool_calls: vec![
-                ToolCall { id: "x1".into(), name: "run_command".into(), arguments: r#"{"command":"ls","purpose":"p"}"#.into() },
-                ToolCall { id: "x2".into(), name: "run_command".into(), arguments: r#"{"command":"pwd","purpose":"p"}"#.into() },
+                ToolCall {
+                    id: "x1".into(),
+                    name: "run_command".into(),
+                    arguments: r#"{"command":"ls","purpose":"p"}"#.into(),
+                },
+                ToolCall {
+                    id: "x2".into(),
+                    name: "run_command".into(),
+                    arguments: r#"{"command":"pwd","purpose":"p"}"#.into(),
+                },
             ],
             usage: None,
             finish_reason: None,
@@ -1650,11 +1960,22 @@ mod tests {
         let mut w = World::new();
         let mut ui = FakeUi::new(vec![Approval::No]);
         let mut agent = Agent::new(
-            &backend, &mut w.exec, &mut w.elevator, settings(PermissionMode::Plan, "linux"),
-            vec![], &mut w.memory, &mut w.log, Redactor::default(),
+            &backend,
+            &mut w.exec,
+            &mut w.elevator,
+            settings(PermissionMode::Plan, "linux"),
+            vec![],
+            &mut w.memory,
+            &mut w.log,
+            Redactor::default(),
         );
         assert_eq!(agent.run_task("x", &mut ui), TaskOutcome::PlanRejected);
-        let ids: Vec<_> = agent.history().iter().filter(|m| m.role == Role::Tool).filter_map(|m| m.tool_call_id.clone()).collect();
+        let ids: Vec<_> = agent
+            .history()
+            .iter()
+            .filter(|m| m.role == Role::Tool)
+            .filter_map(|m| m.tool_call_id.clone())
+            .collect();
         assert_eq!(ids, vec!["x1".to_string(), "x2".to_string()]);
     }
 
@@ -1663,8 +1984,14 @@ mod tests {
         let backend = FakeBackend::new(vec![]);
         let mut w = World::new();
         let agent = Agent::new(
-            &backend, &mut w.exec, &mut w.elevator, settings(PermissionMode::Plan, "windows"),
-            vec![], &mut w.memory, &mut w.log, Redactor::default(),
+            &backend,
+            &mut w.exec,
+            &mut w.elevator,
+            settings(PermissionMode::Plan, "windows"),
+            vec![],
+            &mut w.memory,
+            &mut w.log,
+            Redactor::default(),
         );
         let p = agent.system_prompt();
         assert!(p.contains("Réponds toujours en français"));
@@ -1679,17 +2006,30 @@ mod tests {
         let backend = FakeBackend::new(vec![]);
         let mut w = World::new();
         let mut agent = Agent::new(
-            &backend, &mut w.exec, &mut w.elevator, settings(PermissionMode::Plan, "linux"),
-            vec![], &mut w.memory, &mut w.log, Redactor::default(),
+            &backend,
+            &mut w.exec,
+            &mut w.elevator,
+            settings(PermissionMode::Plan, "linux"),
+            vec![],
+            &mut w.memory,
+            &mut w.log,
+            Redactor::default(),
         );
         let big = "x".repeat(HISTORY_BUDGET_BYTES / 2);
         for _ in 0..4 {
             agent.history.push(Message::user(big.clone()));
-            agent.history.push(Message::assistant(big.clone(), Vec::new()));
+            agent
+                .history
+                .push(Message::assistant(big.clone(), Vec::new()));
         }
         agent.trim_history();
         assert_eq!(agent.history[0].role, Role::User);
-        let total: usize = agent.history.iter().filter_map(|m| m.content.as_ref()).map(String::len).sum();
+        let total: usize = agent
+            .history
+            .iter()
+            .filter_map(|m| m.content.as_ref())
+            .map(String::len)
+            .sum();
         assert!(total <= HISTORY_BUDGET_BYTES);
     }
 
@@ -1698,8 +2038,14 @@ mod tests {
         let backend = FakeBackend::new(vec![]);
         let mut w = World::new();
         let mut agent = Agent::new(
-            &backend, &mut w.exec, &mut w.elevator, settings(PermissionMode::Plan, "linux"),
-            vec![], &mut w.memory, &mut w.log, Redactor::default(),
+            &backend,
+            &mut w.exec,
+            &mut w.elevator,
+            settings(PermissionMode::Plan, "linux"),
+            vec![],
+            &mut w.memory,
+            &mut w.log,
+            Redactor::default(),
         );
         agent.set_mode(PermissionMode::Bypass);
         agent.set_model("autre".into());

@@ -824,7 +824,9 @@ pub fn system_prompt(c: &PromptContext<'_>) -> String {
         "Shell par défaut : {} ({}). Autres shells disponibles : {}.\n",
         c.shell, c.shell_path, c.other_shells
     ));
-    p.push_str(&format!("Droits de la session : {rights}.\nMode : {mode}.\n"));
+    p.push_str(&format!(
+        "Droits de la session : {rights}.\nMode : {mode}.\n"
+    ));
     p.push_str(&format!(
         "Répertoire de travail : {}. Chaque commande démarre dans un NOUVEAU shell dans ce répertoire : un `cd` ne persiste pas d'une commande à l'autre (enchaîne dans une même commande ou utilise des chemins absolus).\n\n",
         c.cwd
@@ -940,9 +942,7 @@ pub fn step_limit_reached(max: u32) -> String {
 }
 
 pub fn fixes_exhausted(max: u32) -> String {
-    format!(
-        "La commande échoue encore après {max} corrections automatiques : la tâche s'arrête."
-    )
+    format!("La commande échoue encore après {max} corrections automatiques : la tâche s'arrête.")
 }
 
 pub fn invalid_calls_exhausted(max: u32) -> String {
@@ -1011,8 +1011,7 @@ pub fn plan_title(n: usize) -> String {
 }
 
 pub const ASK_PLAN: &str = "Exécuter ce plan ? [o/N] ";
-pub const ASK_SINGLE: &str =
-    "Cette commande n'était pas dans le plan validé. L'exécuter ? [o/N] ";
+pub const ASK_SINGLE: &str = "Cette commande n'était pas dans le plan validé. L'exécuter ? [o/N] ";
 pub const ASK_ELEVATION: &str = "Relancer cmd_ai en administrateur ? [o/N] ";
 
 pub fn ask_garde_fou(pattern: &str) -> String {
@@ -1031,7 +1030,13 @@ pub fn command_end(code: Option<i32>, duration_secs: f64) -> String {
     }
 }
 
-pub fn status_line(mode: &str, privilege: &str, model: &str, shell: &str, ephemeral: bool) -> String {
+pub fn status_line(
+    mode: &str,
+    privilege: &str,
+    model: &str,
+    shell: &str,
+    ephemeral: bool,
+) -> String {
     let mut s = format!("cmd_ai · {mode} · {privilege} · {model} · {shell}");
     if ephemeral {
         s.push_str(" · ");

@@ -19,6 +19,40 @@ use windows_sys::Win32::UI::Shell::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
+static INTERRUPT: std::sync::OnceLock<std::sync::Arc<std::sync::atomic::AtomicBool>> =
+    std::sync::OnceLock::new();
+
+unsafe extern "system" fn ctrl_handler(ctrl_type: u32) -> windows_sys::core::BOOL {
+    use windows_sys::Win32::System::Console::{CTRL_BREAK_EVENT, CTRL_C_EVENT};
+    if ctrl_type != CTRL_C_EVENT && ctrl_type != CTRL_BREAK_EVENT {
+        return 0;
+    }
+    match INTERRUPT.get() {
+        Some(flag) => {
+            if flag.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                // Second Ctrl+C while the cancel is still pending: leave now.
+                std::process::exit(130);
+            }
+            1
+        }
+        None => 0,
+    }
+}
+
+/// Ctrl+C / Ctrl+Break set `flag` instead of terminating cmd_ai.
+pub(super) fn install_interrupt_handler(
+    flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> bool {
+    if INTERRUPT.set(flag).is_err() {
+        return true;
+    }
+    // SAFETY: `ctrl_handler` is a valid 'static handler routine; SetConsoleCtrlHandler only
+    // registers it (it runs on a system thread and only touches an atomic).
+    unsafe {
+        windows_sys::Win32::System::Console::SetConsoleCtrlHandler(Some(ctrl_handler), 1) != 0
+    }
+}
+
 #[link(name = "ntdll", kind = "raw-dylib")]
 unsafe extern "system" {
     /// Kernel-mode version query: unlike `GetVersionExW` it is not subject to the

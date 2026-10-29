@@ -10,6 +10,20 @@ mod windows;
 #[cfg(windows)]
 use std::path::Path;
 
+/// Ctrl+C sets `flag` (the cancel flag) instead of killing cmd_ai, so that running commands
+/// are killed cleanly with their whole tree (constitution IV). A second Ctrl+C while the
+/// flag is still set exits with code 130. Returns false if the handler could not be set.
+pub fn install_interrupt_handler(flag: std::sync::Arc<std::sync::atomic::AtomicBool>) -> bool {
+    #[cfg(windows)]
+    {
+        windows::install_interrupt_handler(flag)
+    }
+    #[cfg(unix)]
+    {
+        unix::install_interrupt_handler(flag)
+    }
+}
+
 /// What the model needs to know about the host.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HostInfo {
