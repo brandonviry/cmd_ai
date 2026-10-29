@@ -1,0 +1,12 @@
+/target/
+/demo/
+/config.json
+/log/
+/memory/
+*.log
+.env
+doc-site/node_modules/
+doc-site/.next/
+doc-site/out/
+doc-site/.source/
+.specify/feature.json
