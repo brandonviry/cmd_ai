@@ -360,7 +360,7 @@ jobs:
           else
             echo "version=10" >> "$GITHUB_OUTPUT"
           fi
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         if: steps.site.outputs.present == 'true'
         with:
           package_json_file: doc-site/package.json
