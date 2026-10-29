@@ -1,0 +1,20 @@
+{
+  "title": "Documentation",
+  "pages": [
+    "index",
+    "installation",
+    "utilisation",
+    "configuration",
+    "modes",
+    "droits",
+    "skills",
+    "hooks",
+    "memoire",
+    "portabilite",
+    "securite",
+    "codes-de-sortie",
+    "tests-manuels",
+    "bugs",
+    "faq"
+  ]
+}
