@@ -15,7 +15,7 @@
 | CLI, codes de sortie, tool `run_command`, auto-commandes | [`specs/001-cmd-ai-v1/contracts/cli-and-tool.md`](specs/001-cmd-ai-v1/contracts/cli-and-tool.md) |
 | Tâches et avancement | [`specs/001-cmd-ai-v1/tasks.md`](specs/001-cmd-ai-v1/tasks.md) |
 | Recherche (synthèse / sources) | [`research.md`](specs/001-cmd-ai-v1/research.md) / [`research-sources.md`](specs/001-cmd-ai-v1/research-sources.md) |
-| Documentation utilisateur (source unique, FR) | [`doc/`](doc/) → site Fumadocs [`doc-site/`](doc-site/) → GitHub Pages |
+| Documentation utilisateur (source unique, FR) | [`doc/`](doc/) → site Fumadocs [`doc-site/`](doc-site/) → GitHub Pages <https://brandonviry.github.io/cmd_ai/> |
 | Bugs | [`bug/README.md`](bug/README.md) (une fiche par bug + une issue GitHub) — sécurité : [`SECURITY.md`](SECURITY.md) |
 | CI / releases | [`.github/workflows/`](.github/workflows/) : `ci.yml`, `release.yml` (tag `vX.Y.Z`), `pages.yml` |
 

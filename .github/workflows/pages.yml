@@ -55,6 +55,10 @@ jobs:
         working-directory: doc-site
         env:
           PAGES_BASE_PATH: ${{ steps.setup_pages.outputs.base_path }}
+          NEXT_PUBLIC_SITE_URL: ${{ steps.setup_pages.outputs.base_url }}
+          # Google Search Console (URL-prefix property, HTML tag method): repository
+          # variable GOOGLE_SITE_VERIFICATION = the token of the meta tag. Empty = no tag.
+          NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION: ${{ vars.GOOGLE_SITE_VERIFICATION }}
         run: pnpm build
       - uses: actions/upload-pages-artifact@v5
         with:

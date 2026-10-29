@@ -33,7 +33,7 @@ La V1 n'est pas signée : Windows (SmartScreen, Smart App Control) ou macOS (Gat
 
 ## Documentation
 
-Toute la documentation est dans [`doc/`](doc/) (publiée sur GitHub Pages) : installation, configuration, modes, droits administrateur, skills, hooks, mémoire, portabilité, sécurité, codes de sortie.
+📖 **Documentation en ligne : <https://brandonviry.github.io/cmd_ai/>** — sources Markdown dans [`doc/`](doc/) : installation, configuration, modes, droits administrateur, skills, hooks, mémoire, portabilité, sécurité, codes de sortie.
 
 ## Développement
 
