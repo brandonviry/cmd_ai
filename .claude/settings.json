@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python .claude/hooks/recap_guard.py", "timeout": 30 }
+        ]
+      }
+    ]
+  }
+}
