@@ -1,0 +1,248 @@
+# Release (constitution, "Releases"): a vX.Y.Z tag builds every binary in CI, assembles the
+# portable folder of IDEE.md section 4, zips it with its SHA-256 sums and publishes it on
+# GitHub Releases. Nothing is ever published from a local build.
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  check:
+    name: tag matches Cargo.toml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: |
+          version=$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -n 1)
+          echo "Cargo.toml version: $version, tag: $GITHUB_REF_NAME"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match the Cargo.toml version ($version)."
+            exit 1
+          fi
+
+  build:
+    name: build ${{ matrix.asset }}
+    needs: check
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: cmd_ai.exe
+            max_bytes: 5242880
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            asset: cmd_ai-linux-x86_64
+            max_bytes: 5242880
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            asset: cmd_ai-linux-aarch64
+            max_bytes: 5242880
+          - os: macos-latest
+            target: universal-apple-darwin # x86_64 + aarch64, merged with lipo
+            asset: cmd_ai-macos
+            max_bytes: 10485760
+    runs-on: ${{ matrix.os }}
+    env:
+      TARGET: ${{ matrix.target }}
+      ASSET: ${{ matrix.asset }}
+      # ring (rustls) compiles C code: build it against musl, not glibc.
+      CC_x86_64_unknown_linux_musl: musl-gcc
+      CC_aarch64_unknown_linux_musl: musl-gcc
+    steps:
+      - uses: actions/checkout@v6
+      - name: musl-tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Rust toolchain and targets
+        shell: bash
+        run: |
+          rustup toolchain install || rustup show
+          if [ "$TARGET" = universal-apple-darwin ]; then
+            rustup target add x86_64-apple-darwin aarch64-apple-darwin
+          else
+            rustup target add "$TARGET"
+          fi
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+      - name: Tests on this platform
+        run: cargo test --locked
+
+      - name: Build
+        if: runner.os != 'macOS'
+        shell: bash
+        run: |
+          cargo build --release --locked --target "$TARGET"
+          src=target/$TARGET/release/cmd_ai
+          [ -f "$src.exe" ] && src=$src.exe
+          mkdir -p dist
+          cp "$src" "dist/$ASSET"
+      - name: Build the universal binary, ad-hoc signature
+        if: runner.os == 'macOS'
+        run: |
+          for t in x86_64-apple-darwin aarch64-apple-darwin; do
+            cargo build --release --locked --target "$t"
+          done
+          mkdir -p dist
+          lipo -create -output "dist/$ASSET" \
+            target/x86_64-apple-darwin/release/cmd_ai target/aarch64-apple-darwin/release/cmd_ai
+          lipo -info "dist/$ASSET"
+          codesign --force --sign - "dist/$ASSET"
+          codesign --verify --verbose "dist/$ASSET"
+
+      - name: Size budget
+        shell: bash
+        env:
+          MAX_BYTES: ${{ matrix.max_bytes }}
+        run: |
+          size=$(wc -c < "dist/$ASSET" | tr -d '[:space:]')
+          echo "$ASSET: $size bytes (budget $MAX_BYTES)"
+          if [ "$size" -gt "$MAX_BYTES" ]; then
+            echo "::error::$ASSET is $size bytes, over its budget of $MAX_BYTES bytes (principle VIII)."
+            exit 1
+          fi
+
+      # Principle III: static binaries (system libraries only on macOS).
+      - name: Linking check (Linux, static)
+        if: runner.os == 'Linux'
+        run: |
+          readelf -d "dist/$ASSET" || true
+          if readelf -d "dist/$ASSET" | grep -q '(NEEDED)'; then
+            echo "::error::$ASSET needs shared libraries: it must be statically linked."
+            exit 1
+          fi
+          if readelf -l "dist/$ASSET" | grep -q 'program interpreter'; then
+            echo "::error::$ASSET requests a program interpreter: it must be statically linked."
+            exit 1
+          fi
+      - name: Linking check (Windows, static CRT)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $dumpbin = & $vswhere -latest -products * -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1
+          if (-not $dumpbin) { Write-Output '::error::dumpbin.exe not found.'; exit 1 }
+          $deps = & $dumpbin /nologo /dependents "dist\$env:ASSET"
+          $deps
+          $crt = $deps | Select-String -Pattern 'vcruntime|msvcp|ucrtbase|api-ms-win-crt' -SimpleMatch:$false
+          if ($crt) { Write-Output "::error::$env:ASSET depends on the dynamic CRT ($($crt -join ', ')): build with +crt-static."; exit 1 }
+      - name: Linking check (macOS, system libraries only)
+        if: runner.os == 'macOS'
+        run: |
+          otool -L "dist/$ASSET"
+          if otool -L "dist/$ASSET" | grep -E '^[[:space:]]+/' | grep -vE '^[[:space:]]+(/usr/lib/|/System/Library/)'; then
+            echo "::error::$ASSET links a library outside /usr/lib and /System/Library."
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+          retention-days: 7
+
+  package:
+    name: portable package + GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Assemble the portable folder cmd_ai/
+        run: |
+          rm -rf cmd_ai
+          mkdir cmd_ai
+          cp -R portable/. cmd_ai/
+          find cmd_ai -name .gitkeep -delete
+          rm -f cmd_ai/config.json # only config.example.json ships: never a configuration with a key
+          mkdir -p cmd_ai/log cmd_ai/memory cmd_ai/skills
+          cp LICENSE cmd_ai/LICENSE
+          for b in cmd_ai.exe cmd_ai-linux-x86_64 cmd_ai-linux-aarch64 cmd_ai-macos; do
+            if [ ! -f "dist/$b" ]; then
+              echo "::error::Missing binary: $b"
+              exit 1
+            fi
+            cp "dist/$b" "cmd_ai/$b"
+          done
+          for f in config.example.json cmd_ai.sh cmd_ai.command; do
+            if [ ! -f "cmd_ai/$f" ]; then
+              echo "::error::Missing portable/$f"
+              exit 1
+            fi
+          done
+          # Artifacts do not keep Unix permissions.
+          chmod +x cmd_ai/cmd_ai.exe cmd_ai/cmd_ai-linux-x86_64 cmd_ai/cmd_ai-linux-aarch64 \
+            cmd_ai/cmd_ai-macos cmd_ai/cmd_ai.sh cmd_ai/cmd_ai.command
+          ls -laR cmd_ai
+
+      - name: Zip and SHA-256 sums
+        run: |
+          zip_name="cmd_ai-$TAG-portable.zip"
+          zip -r -X -9 "$zip_name" cmd_ai
+          unzip -l "$zip_name"
+          {
+            sha256sum "$zip_name"
+            sha256sum cmd_ai/cmd_ai.exe cmd_ai/cmd_ai-linux-x86_64 cmd_ai/cmd_ai-linux-aarch64 \
+              cmd_ai/cmd_ai-macos cmd_ai/cmd_ai.sh cmd_ai/cmd_ai.command
+          } > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Release notes (French)
+        run: |
+          zip_name="cmd_ai-$TAG-portable.zip"
+          cat > release-notes.md <<EOF
+          ## cmd_ai $TAG
+
+          **Paquet portable** : \`$zip_name\`, un seul dossier pour Windows x64, Linux x86_64 et aarch64, et macOS (Intel et Apple Silicon), qui partagent \`config.json\`, \`log/\`, \`memory/\` et \`skills/\`.
+
+          1. Décompressez le zip, sur une clé USB formatée en **exFAT** si vous voulez l'emporter.
+          2. Copiez \`config.example.json\` en \`config.json\` et renseignez \`provider.api_key\` (clé créée sur ollama.com/settings/keys), ou lancez cmd_ai : il vous propose de le faire.
+          3. Lancez \`cmd_ai.exe\` (Windows), \`sh cmd_ai.sh\` (Linux, macOS) ou double-cliquez \`cmd_ai.command\` (macOS).
+
+          **Intégrité** : \`SHA256SUMS.txt\` donne l'empreinte du zip et de chaque binaire.
+          - Linux : \`sha256sum -c --ignore-missing SHA256SUMS.txt\`
+          - macOS : \`shasum -a 256 -c --ignore-missing SHA256SUMS.txt\`
+          - Windows : \`Get-FileHash .\\$zip_name -Algorithm SHA256\`
+
+          ### Limites de la V1 : binaires non signés
+
+          - **Windows** : SmartScreen peut afficher « Windows a protégé votre ordinateur » au premier lancement : cliquez sur « Informations complémentaires », puis « Exécuter quand même ». Débloquez le zip **avant** de le décompresser (Propriétés, case « Débloquer », ou \`Unblock-File .\\$zip_name\`). **Smart App Control** (Windows 11) et **AppLocker** bloquent les binaires non signés sans contournement possible côté utilisateur, et certaines organisations interdisent l'exécution depuis une clé USB : cmd_ai ne peut alors pas tourner sur ce PC. La signature de code est prévue avant la version 1.0.
+          - **macOS** : Gatekeeper bloque un binaire non signé téléchargé (« impossible de vérifier le développeur »). Retirez la quarantaine dans le dossier de cmd_ai avec \`xattr -dr com.apple.quarantine .\` (ou \`xattr -d com.apple.quarantine cmd_ai-macos\`), ou autorisez le binaire dans Réglages Système, Confidentialité et sécurité. Le binaire universel ne porte qu'une signature ad hoc, sans notarisation ; \`cmd_ai.sh\` rappelle la commande s'il est bloqué.
+          - **Linux** : sur une clé **FAT32**, Linux monte le support avec l'option \`showexec\`, qui retire le droit d'exécution aux fichiers sans extension : formatez la clé en **exFAT** (conseillé). Les binaires sont statiques (musl) : rien à installer.
+          - **Traces** : cmd_ai n'écrit rien hors de son dossier, mais l'OS garde ses propres traces d'exécution (Prefetch, Amcache, historique des périphériques USB…), hors de sa portée.
+          - **Clé API** : elle est stockée en clair dans \`config.json\` et n'expire pas. Si vous perdez la clé USB, révoquez-la sur ollama.com/settings/keys.
+
+          Documentation : https://github.com/brandonviry/cmd_ai/tree/$TAG/doc · Sécurité : https://github.com/brandonviry/cmd_ai/blob/$TAG/SECURITY.md
+          EOF
+          cat release-notes.md
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: cmd_ai ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: |
+            cmd_ai-${{ github.ref_name }}-portable.zip
+            SHA256SUMS.txt
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          fail_on_unmatched_files: true

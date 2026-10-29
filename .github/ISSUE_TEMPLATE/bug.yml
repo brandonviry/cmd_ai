@@ -1,0 +1,109 @@
+name: Signaler un bug
+description: Un comportement inattendu de cmd_ai. Pour une faille de sécurité, ouvrez plutôt un avis de sécurité privé.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Merci de signaler ce bug ! Après analyse, il aura sa fiche dans [`bug/`](https://github.com/brandonviry/cmd_ai/blob/main/bug/README.md) et un test de non-régression.
+
+        > ⚠️ **Ne collez jamais votre clé API**, ni le contenu complet de `config.json`. cmd_ai masque la clé (`••••`) dans ses journaux, mais relisez tout ce que vous collez ici.
+        >
+        > Une **faille de sécurité** (fuite de la clé, écriture hors du dossier de cmd_ai, contournement du mode plan ou des garde-fous…) ne se signale pas ici : utilisez un [avis de sécurité privé](https://github.com/brandonviry/cmd_ai/security/advisories/new).
+  - type: input
+    id: version
+    attributes:
+      label: Version de cmd_ai
+      description: La sortie de `cmd_ai --version`.
+      placeholder: cmd_ai 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Système d'exploitation
+      options:
+        - Windows
+        - Linux
+        - macOS
+    validations:
+      required: true
+  - type: input
+    id: os-version
+    attributes:
+      label: Version de l'OS et architecture
+      placeholder: "Windows 11 24H2 x64, Ubuntu 24.04 arm64, macOS 15 Apple Silicon…"
+    validations:
+      required: false
+  - type: dropdown
+    id: shell
+    attributes:
+      label: Shell utilisé par cmd_ai
+      description: Indiqué dans le plan et dans chaque bloc de commande.
+      options:
+        - PowerShell 7 (pwsh)
+        - Windows PowerShell 5.1
+        - cmd
+        - bash
+        - sh
+        - zsh
+        - Je ne sais pas
+    validations:
+      required: true
+  - type: dropdown
+    id: interface
+    attributes:
+      label: Interface et mode
+      multiple: true
+      options:
+        - TUI ouvert (cmd_ai ou --prompt dans un terminal)
+        - TUI fermé (--no-tui, ou sortie redirigée)
+        - Mode plan
+        - Mode bypass
+        - Session administrateur (UAC ou sudo)
+    validations:
+      required: false
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Étapes pour reproduire
+      description: La demande faite à cmd_ai, les options de lancement, ce que vous avez validé.
+      placeholder: |
+        1. Lancer `cmd_ai --no-tui --prompt "affiche la date"`
+        2. Valider le plan avec « o »
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportement attendu
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Comportement observé
+      description: Message d'erreur exact et code de sortie si possible.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Extrait du journal
+      description: |
+        Les lignes utiles du fichier de la session dans `log/` (dossier de cmd_ai).
+        ⚠️ Ne collez JAMAIS votre clé API : vérifiez qu'aucune ligne ne contient `api_key`, `Authorization`, `Bearer` ou la valeur de `OLLAMA_API_KEY`.
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Vérifications
+      options:
+        - label: Ce rapport ne contient ni ma clé API ni aucun autre secret.
+          required: true
+        - label: J'ai cherché parmi les issues existantes et ce bug n'y figure pas.
+          required: false

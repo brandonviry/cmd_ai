@@ -1,0 +1,376 @@
+# Continuous integration (constitution, "Flux de développement" and principles II, III, V,
+# VII, VIII, IX): every push and pull request, on Windows, Linux and macOS.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
+jobs:
+  fmt:
+    name: cargo fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install || rustup show
+      - run: cargo fmt --all --check
+
+  test:
+    name: clippy + tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Rust toolchain (rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install || rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: cargo test
+        run: cargo test --locked
+
+  guards:
+    name: guards (constitution)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: No model name in src/ (models come from config.json)
+        # Production code only: each file is read up to its first #[cfg(test)] line (the unit
+        # test module closes every file), because test fixtures may quote model names.
+        # "llama" not preceded by "o", so that Ollama and OLLAMA_API_KEY stay allowed.
+        run: |
+          prod_src() {
+            find src -name '*.rs' -print0 | sort -z | xargs -0 awk '
+              FNR == 1 { skip = 0 }
+              /^[[:space:]]*#\[cfg\(test\)\]/ { skip = 1 }
+              !skip { print FILENAME ":" FNR ":" $0 }'
+          }
+          if prod_src | grep -iP '^[^:]+:[0-9]+:.*(beam|gpt-oss|mistral|gemma|(?<!o)llama|qwen|deepseek|glm|kimi)'; then
+            echo "::error::Model name found in src/: model names must come from config.json (constitution, Provider et modèles)."
+            exit 1
+          fi
+      - name: Colour literals only in src/ui/theme.rs (principle VII)
+        run: |
+          if grep -RnE 'Color::(Rgb|Indexed)' src/ | grep -v '^src/ui/theme\.rs:'; then
+            echo "::error::Colour literal outside src/ui/theme.rs: use ui::theme::Role (principle VII)."
+            exit 1
+          fi
+      - name: No registry write API (principle III)
+        run: |
+          if grep -RnE 'RegSetValue|RegCreateKey|RegDeleteKey|winreg' src/; then
+            echo "::error::Registry write API found in src/ (principle III: nothing is written on the host)."
+            exit 1
+          fi
+      - name: No sudo -S (principle V)
+        # Production code only (see the model-name guard): tests may use it as a fixture.
+        run: |
+          prod_src() {
+            find src -name '*.rs' -print0 | sort -z | xargs -0 awk '
+              FNR == 1 { skip = 0 }
+              /^[[:space:]]*#\[cfg\(test\)\]/ { skip = 1 }
+              !skip { print FILENAME ":" FNR ":" $0 }'
+          }
+          if prod_src | grep -F -e 'sudo -S'; then
+            echo "::error::'sudo -S' found in src/: a password never goes through cmd_ai (principle V)."
+            exit 1
+          fi
+      - name: Processes are created only by src/exec.rs (principle II)
+        run: |
+          status=0
+          if grep -RnE '\bCommand::new\b' src/ | grep -v '^src/exec\.rs:'; then
+            echo "::error::std::process::Command::new outside src/exec.rs (principle II: one execution gate)."
+            status=1
+          fi
+          if grep -RnE 'disallowed_methods' src/ | grep -v '^src/exec\.rs:'; then
+            echo "::error::Only src/exec.rs may allow clippy::disallowed_methods (principle II)."
+            status=1
+          fi
+          exit "$status"
+      - name: shellcheck (POSIX launchers)
+        run: |
+          shellcheck --version
+          shellcheck portable/cmd_ai.sh
+          shellcheck --shell=sh portable/cmd_ai.command
+
+  deny:
+    name: cargo deny (${{ matrix.checks }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        checks: [advisories, bans licenses sources]
+    # A new advisory must not block unrelated changes: it is reported, not fatal.
+    continue-on-error: ${{ matrix.checks == 'advisories' }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check ${{ matrix.checks }}
+
+  gitleaks:
+    name: secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: false
+
+  budgets:
+    name: budgets (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            exe: .exe
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            exe: ''
+    runs-on: ${{ matrix.os }}
+    env:
+      TARGET: ${{ matrix.target }}
+      BIN: target/${{ matrix.target }}/release/cmd_ai${{ matrix.exe }}
+      MAX_BINARY_BYTES: 5242880
+      MAX_VERSION_MS: 50
+      MAX_DIRECT_DEPS: 15
+      MAX_TRANSITIVE_DEPS: 150
+      # ring (rustls) compiles C code: build it against musl, not glibc.
+      CC_x86_64_unknown_linux_musl: musl-gcc
+    steps:
+      - uses: actions/checkout@v6
+      - name: musl-tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Rust toolchain and target
+        shell: bash
+        run: |
+          rustup toolchain install || rustup show
+          rustup target add "$TARGET"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Release build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Binary size (budget 5 MiB)
+        shell: bash
+        run: |
+          size=$(wc -c < "$BIN" | tr -d '[:space:]')
+          echo "$BIN: $size bytes (budget $MAX_BINARY_BYTES)"
+          echo "| $TARGET | binary | $size B | ≤ $MAX_BINARY_BYTES B |" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$size" -gt "$MAX_BINARY_BYTES" ]; then
+            echo "::error::$BIN is $size bytes, over the 5 MiB budget (principle VIII)."
+            exit 1
+          fi
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Start-up time (median of 10 warm --version runs, budget 50 ms)
+        shell: bash
+        run: |
+          python - "$BIN" "$MAX_VERSION_MS" <<'EOF'
+          import os, statistics, subprocess, sys, time
+
+          exe, budget = os.path.abspath(sys.argv[1]), float(sys.argv[2])
+
+          def run():
+              start = time.perf_counter()
+              done = subprocess.run([exe, "--version"], stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+              elapsed = (time.perf_counter() - start) * 1000.0
+              if done.returncode != 0:
+                  sys.exit(f"--version exited with {done.returncode}: {done.stderr!r}")
+              return elapsed
+
+          for _ in range(3):  # warm-up: file cache, antivirus scan of a new binary
+              run()
+          runs = [run() for _ in range(10)]
+          median = statistics.median(runs)
+          print("runs (ms):", ", ".join(f"{r:.1f}" for r in runs))
+          print(f"median: {median:.1f} ms (budget {budget:.0f} ms)")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(f"| {os.environ['TARGET']} | --version median | {median:.1f} ms | ≤ {budget:.0f} ms |\n")
+          if median > budget:
+              print(f"::error::--version median {median:.1f} ms is over the {budget:.0f} ms budget (principle VIII).")
+              sys.exit(1)
+          EOF
+      - name: Dependencies (budgets 15 direct, 150 transitive)
+        shell: bash
+        run: |
+          direct=$(cargo metadata --format-version 1 --no-deps --locked \
+            | jq '[.packages[] | select(.name == "cmd_ai") | .dependencies[] | select(.kind == null) | .name] | unique | length' \
+            | tr -d '[:space:]')
+          total=$(cargo tree --locked -e normal --target "$TARGET" --prefix none \
+            | tr -d '\r' | awk 'NF { print $1, $2 }' | sort -u | wc -l | tr -d '[:space:]')
+          transitive=$((total - 1)) # cmd_ai itself
+          echo "direct normal dependencies: $direct (budget $MAX_DIRECT_DEPS)"
+          echo "transitive normal dependencies for $TARGET: $transitive (budget $MAX_TRANSITIVE_DEPS)"
+          echo "| $TARGET | direct deps | $direct | ≤ $MAX_DIRECT_DEPS |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| $TARGET | transitive deps | $transitive | ≤ $MAX_TRANSITIVE_DEPS |" >> "$GITHUB_STEP_SUMMARY"
+          status=0
+          if [ "$direct" -gt "$MAX_DIRECT_DEPS" ]; then
+            echo "::error::$direct direct dependencies, over the budget of $MAX_DIRECT_DEPS (principle VIII)."
+            status=1
+          fi
+          if [ "$transitive" -gt "$MAX_TRANSITIVE_DEPS" ]; then
+            echo "::error::$transitive transitive dependencies for $TARGET, over the budget of $MAX_TRANSITIVE_DEPS (principle VIII)."
+            status=1
+          fi
+          exit "$status"
+
+  doc:
+    name: doc (site, pages, bug fiches)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Bug fiches (frontmatter etat + issue, regression test, references)
+        run: |
+          shopt -s nullglob
+          status=0
+          fail() { echo "::error file=$1::$2"; status=1; }
+          frontmatter() { awk 'NR == 1 { if ($0 != "---") exit; next } $0 == "---" { exit } { print }' "$1" | tr -d '\r'; }
+          field() { printf '%s\n' "$1" | sed -n "s/^$2:[[:space:]]*//p" | head -n 1 | sed -e 's/[[:space:]]*$//' -e 's/^["'\'']//' -e 's/["'\'']$//'; }
+          count=0
+          for f in bug/*.md; do
+            name=${f#bug/}
+            case $name in README.md | _modele.md) continue ;; esac
+            count=$((count + 1))
+            [[ $name =~ ^[0-9]+-[a-z0-9]+(-[a-z0-9]+)*\.md$ ]] || fail "$f" "nom attendu : bug/<numéro d'issue>-<slug>.md"
+            fm=$(frontmatter "$f")
+            [ -n "$fm" ] || { fail "$f" "frontmatter YAML absent (bloc --- en tête)"; continue; }
+            for key in etat issue; do
+              printf '%s\n' "$fm" | grep -qE "^$key:[[:space:]]*[^[:space:]]" || fail "$f" "clé de frontmatter « $key » absente ou vide"
+            done
+            etat=$(field "$fm" etat)
+            case $etat in
+              ouvert | en-cours | corrige | ferme) ;;
+              '') ;;
+              *) fail "$f" "etat « $etat » invalide (ouvert | en-cours | corrige | ferme)" ;;
+            esac
+            issue=$(field "$fm" issue)
+            if [ -n "$issue" ] && ! [[ $issue =~ ^https://github\.com/[^/]+/[^/]+/issues/[0-9]+$ ]]; then
+              fail "$f" "issue doit être l'URL de l'issue GitHub (https://github.com/<owner>/<repo>/issues/<n>)"
+            fi
+            if [ "$etat" = corrige ] || [ "$etat" = ferme ]; then
+              test_path=$(field "$fm" test)
+              if [ -z "$test_path" ]; then
+                fail "$f" "un bug corrigé cite son test de non-régression (clé « test »)"
+              elif [ ! -e "${test_path%%::*}" ]; then
+                fail "$f" "test de non-régression introuvable : ${test_path%%::*}"
+              fi
+            fi
+            grep -qF "$name" CLAUDE.md || fail "$f" "fiche non référencée dans CLAUDE.md"
+            grep -qF "$name" bug/README.md || fail "$f" "fiche absente de l'index bug/README.md"
+            if [ -d doc ] && ! grep -RqF "$name" doc/; then
+              fail "$f" "fiche non citée dans doc/"
+            fi
+          done
+          echo "$count bug fiche(s) checked."
+          exit "$status"
+
+      - name: Doc pages have a title and a description
+        if: hashFiles('doc/**/*.md', 'doc/**/*.mdx') != ''
+        run: |
+          status=0
+          while IFS= read -r -d '' f; do
+            fm=$(awk 'NR == 1 { if ($0 != "---") exit; next } $0 == "---" { exit } { print }' "$f" | tr -d '\r')
+            for key in title description; do
+              printf '%s\n' "$fm" | grep -qE "^$key:[[:space:]]*[^[:space:]]" || {
+                echo "::error file=$f::clé de frontmatter « $key » absente ou vide"
+                status=1
+              }
+            done
+          done < <(find doc -type f \( -name '*.md' -o -name '*.mdx' \) -print0)
+          exit "$status"
+
+      - name: Relative links of doc/ and bug/ resolve
+        run: |
+          status=0
+          while IFS= read -r -d '' f; do
+            dir=$(dirname "$f")
+            while IFS= read -r link; do
+              case $link in http://* | https://* | mailto:* | '#'* | /*) continue ;; esac
+              target=${link%%#*}
+              [ -n "$target" ] || continue
+              if [ ! -e "$dir/$target" ] && [ ! -e "$dir/$target.md" ] && [ ! -e "$dir/$target.mdx" ]; then
+                echo "::error file=$f::lien relatif cassé : $link"
+                status=1
+              fi
+            done < <(grep -oE '\]\([^)[:space:]]+' "$f" | sed 's/^](//')
+          done < <(find doc bug -type f \( -name '*.md' -o -name '*.mdx' \) -print0 2>/dev/null)
+          exit "$status"
+
+      - name: Detect doc-site
+        id: site
+        run: |
+          if [ -f doc-site/package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::doc-site/package.json is absent: the site build is skipped."
+          fi
+
+      - name: No Markdown content under doc-site/ (doc/ is the single source)
+        if: steps.site.outputs.present == 'true'
+        run: |
+          found=$(find doc-site \( -name node_modules -o -name .next -o -name out -o -name .source \) -prune -o \
+            -type f \( -name '*.md' -o -name '*.mdx' \) ! -path doc-site/README.md -print)
+          if [ -n "$found" ]; then
+            printf '%s\n' "$found"
+            echo "::error::Markdown content found under doc-site/: pages belong in doc/ (constitution, Documentation)."
+            exit 1
+          fi
+
+      - name: pnpm version (packageManager of doc-site/package.json, else 10)
+        id: pnpm
+        if: steps.site.outputs.present == 'true'
+        run: |
+          if jq -e '(.packageManager // "") | startswith("pnpm@")' doc-site/package.json > /dev/null; then
+            echo "version=" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=10" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: pnpm/action-setup@v4
+        if: steps.site.outputs.present == 'true'
+        with:
+          package_json_file: doc-site/package.json
+          version: ${{ steps.pnpm.outputs.version }}
+      - uses: actions/setup-node@v5
+        if: steps.site.outputs.present == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: doc-site/pnpm-lock.yaml
+      - name: pnpm install
+        if: steps.site.outputs.present == 'true'
+        working-directory: doc-site
+        run: pnpm install --frozen-lockfile
+      - name: pnpm build
+        if: steps.site.outputs.present == 'true'
+        working-directory: doc-site
+        run: pnpm build
