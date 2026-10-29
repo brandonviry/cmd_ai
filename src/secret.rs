@@ -96,13 +96,19 @@ mod tests {
     #[test]
     fn redactor_masks_every_occurrence() {
         let r = Redactor::new(&["abcd1234"]);
-        assert_eq!(r.redact("key=abcd1234; again abcd1234"), format!("key={MASK}; again {MASK}"));
+        assert_eq!(
+            r.redact("key=abcd1234; again abcd1234"),
+            format!("key={MASK}; again {MASK}")
+        );
     }
 
     #[test]
     fn redactor_ignores_short_secrets_and_handles_nesting() {
         let r = Redactor::new(&["ab", "secret", "my-secret-long"]);
-        assert_eq!(r.redact("ab my-secret-long secret"), format!("ab {MASK} {MASK}"));
+        assert_eq!(
+            r.redact("ab my-secret-long secret"),
+            format!("ab {MASK} {MASK}")
+        );
     }
 
     #[test]
