@@ -680,6 +680,9 @@ pub fn run(session: Session, initial_prompt: Option<String>) -> i32 {
     let (approval_tx, approval_rx) = mpsc::channel::<Approval>();
     let (suspended_tx, suspended_rx) = mpsc::channel::<()>();
     let cancel = Arc::new(AtomicBool::new(false));
+    // Raw mode turns Ctrl+C into a key; while the terminal is handed over (sudo -v), the
+    // signal must still cancel cleanly instead of killing cmd_ai.
+    crate::platform::install_interrupt_handler(Arc::clone(&cancel));
     let ephemeral = !home.writable;
 
     let agent_cancel = Arc::clone(&cancel);

@@ -193,38 +193,50 @@ pub fn save_resume(home: &Home, st: &ResumeState) -> Result<PathBuf, String>; pu
 
 ```rust
 pub struct PlanStep { pub command: String, pub purpose: String, pub shell: String, pub admin: bool }
+pub struct StatusLine { pub mode: PermissionMode, pub admin: bool, pub model: String, pub ephemeral: bool, pub shell: String }
 pub enum AgentEvent {
-    Status(StatusLine),                       // mode, droits, modèle, éphémère
-    Reasoning(String), AssistantDelta(String), AssistantDone(String),
+    Status(StatusLine), Reasoning(String), AssistantDelta(String), AssistantDone(String),
     Plan(Vec<PlanStep>), Progress { done: usize, total: usize },
     CommandStart { index: usize, total: usize, step: PlanStep, hook: bool },
     CommandOutput { stream: Stream, text: String },
     CommandEnd { code: Option<i32>, duration: Duration, timed_out: bool, cancelled: bool, truncated: bool },
     Info(String), Warning(String), Error(String), TaskEnd(TaskOutcome),
 }
-pub enum TaskOutcome { Done, Failed, PlanRejected, PlanNotApproved /*sans TTY*/, Cancelled, StepLimit, ProviderError }
-pub enum ApprovalRequest { Plan(Vec<PlanStep>), Single(PlanStep) /*hors plan, ou garde-fou*/, Elevation { reason: String } }
-pub enum Approval { Yes, No, Unavailable /*pas de terminal interactif*/ }
+pub enum TaskOutcome { Done, Failed, PlanRejected, PlanNotApproved, Cancelled, StepLimit, ProviderError, Elevating }
+impl TaskOutcome { pub fn exit_code(self) -> i32; }   // 0 / 1 / 3 / 130 / 5 (cli-and-tool.md)
+pub enum ApprovalRequest { Plan(Vec<PlanStep>), Single { step: PlanStep, garde_fou: Option<String> }, Elevation { reason: String } }
+pub enum Approval { Yes, No, Unavailable }
 pub trait Frontend {
     fn event(&mut self, ev: AgentEvent);
     fn approve(&mut self, req: ApprovalRequest) -> Approval;
-    fn handover(&mut self, program: &str, args: &[&str]) -> Option<i32>; // rend le terminal (sudo -v, étape interactive)
+    fn handover(&mut self, run: &mut dyn FnMut() -> Option<i32>) -> Option<i32>; // suspend the display, run (spawned by exec), resume
     fn cancel_flag(&self) -> Arc<AtomicBool>;
 }
 ```
+
+Frontends : `ui::plain::PlainFrontend` (TUI fermé ; `read_request()` pour la boucle texte de repli) et `ui::tui` (`probe()` vérifie raw mode + requête de position du curseur ; `run(Session, Option<String>) -> i32` : agent sur un thread de travail, `ChannelFrontend` + canaux `UiMsg` / `AgentCmd`). Si `probe()` échoue, `lib.rs` bascule en TUI fermé (boucle ligne à ligne avec les mêmes commandes `/`).
 
 ## agent.rs
 
 ```rust
 pub struct AgentSettings { pub mode: PermissionMode, pub model: String, pub max_tokens: u32, pub limits: Limits, pub garde_fous: Vec<String>,
-                           pub hooks: HooksConfig, pub cwd: PathBuf, pub host: HostInfo, pub shell: ShellInfo, pub privilege: Privilege }
+                           pub hooks: HooksConfig, pub cwd: PathBuf, pub host: HostInfo, pub shells: Vec<ShellInfo> /* [0] = défaut, jamais vide */,
+                           pub privilege: Privilege, pub show_reasoning: bool, pub ephemeral: bool, pub base_url: String, pub retry_delays: Vec<Duration> }
+pub trait Elevator { fn sudo_ready(&mut self) -> bool; fn sudo_validate(&mut self) -> Option<i32>; fn relaunch(&mut self, state: &ResumeState) -> Result<(), String>; }
+pub struct SystemElevator { pub home: Home }      // sudo -n true / sudo -v / save_resume + relaunch_elevated
 pub struct Agent<'a, B: ChatBackend, E: Executor> { … }
-impl<'a, B, E> Agent<'a, B, E> {
-    pub fn new(backend: &'a B, exec: &'a mut E, settings: AgentSettings, skills: Vec<Skill>, memory: &'a mut Memory, log: &'a mut SessionLog, redactor: Redactor) -> Self;
-    pub fn system_prompt(&self) -> String;
-    pub fn run_task(&mut self, prompt: &str, ui: &mut dyn Frontend) -> TaskOutcome;  // conserve l'historique entre tâches (session TUI)
-    pub fn set_mode(&mut self, m: PermissionMode); pub fn set_model(&mut self, m: String);
+impl Agent {
+    pub fn new(backend: &'a B, exec: &'a mut E, elevator: &'a mut dyn Elevator, settings: AgentSettings, skills: Vec<Skill>,
+               memory: &'a mut Memory, log: &'a mut SessionLog, redactor: Redactor) -> Self;
+    pub fn system_prompt(&self) -> String; pub fn status(&self) -> StatusLine;
+    pub fn session_start(&mut self, ui: &mut dyn Frontend);              // hooks session_start
+    pub fn run_task(&mut self, prompt: &str, ui: &mut dyn Frontend) -> TaskOutcome; // historique conservé entre tâches
+    pub fn set_mode(&mut self, m: PermissionMode); pub fn set_model(&mut self, m: String); pub fn clear_history(&mut self);
 }
 ```
 
-Boucle `run_task` : message user → `chat` (reprises : 429-concurrence/5xx/réseau jusqu'à 3 fois avec backoff 2 s/8 s/20 s ou `Retry-After` ; réponse vide 1 relance) → si `tool_calls` vide : `AssistantDone`, fin `Done` → sinon pour chaque appel : parse (erreur → message tool d'erreur, ≤ 2 relances consécutives) → auto-commande ? (intercept) → `risk::assess` → plan : première commande d'une tâche en mode plan = approbation du plan (`plan` ou `[command]`), commandes suivantes déjà dans le plan approuvé (comparaison normalisée) passent, sinon `Single` → bypass : `Single` seulement si garde-fou → admin et session non élevée : Unix `sudo -n true` sinon `handover("sudo", ["-v"])` puis `sudo=true` ; Windows : `ApprovalRequest::Elevation` → `save_resume` + `relaunch_elevated` + `TaskOutcome::Cancelled` avec message → hooks `pre_command` (code 2 = bloqué) → `FileSnapshot::take` → `exec.run` (événements) → hooks `post_command` + `file_changed` → résultat réduit, encadré, masqué → message `tool` → étape suivante. Plafond `max_steps`, `max_fixes` (même commande normalisée en échec consécutif).
+Boucle `run_task` : message user → `chat` (reprises : 429 et 5xx jusqu'à 3 fois, backoff 2 s / 8 s / 20 s ou `Retry-After` ≤ 60 s ; erreur réseau 1 seule reprise ; réponse vide 1 relance ; le reste → `ProviderError`) → sans `tool_calls` : `AssistantDone`, fin `Done` (ou `Failed` si la dernière commande a échoué) → sinon, pour chaque appel (chaque `tool_call_id` reçoit une réponse, même après un arrêt) : parse (erreur → `ERREUR :`, > 2 de suite → `Failed`) → auto-commande (interceptée, sans validation, hors `n/M`) → plafond d'étapes → shell → `risk::assess` (préfixe sudo retiré) → mode plan : 1er appel = validation du plan entier (`plan` ou `[command]`), ensuite seules les commandes hors plan sont redemandées (`Single`) ; bypass : `Single` seulement pour un garde-fou → admin et session non élevée : Windows `Elevation` → `relaunch` → `Elevating` ; Unix `sudo_ready` sinon `handover(sudo -v)` puis `sudo=true` → hooks `pre_command` (code 2 = bloqué) → `FileSnapshot` → `exec.run` (Captured / Detached pour les lanceurs GUI / Inherited dans `handover` si `interactive`) → hooks `post_command` + `file_changed` → résultat réduit (16 Kio, 3/4 stdout, 1/4 stderr), masqué, encadré → message `tool`. Échecs consécutifs > `max_fixes` → `Failed`. Annulation → `Cancelled`. Hooks `task_end` à la fin (sauf `Elevating`).
+
+## lib.rs
+
+`pub struct Session { client, settings, skills, warnings, memory, log, redactor, home, theme, config }` ; `pub fn run() -> i32` ; `pub fn available_shells() -> Vec<ShellInfo>`. Ordre : arguments → prompt (`--prompt-file` lu avant toute interface) → dossier → configuration (assistant de première configuration si terminal interactif) → `--resume` → mode / modèle → shells → TUI ou TUI fermé.

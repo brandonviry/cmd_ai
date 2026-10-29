@@ -413,7 +413,7 @@ impl<'a, B: ChatBackend, E: Executor> Agent<'a, B, E> {
                     self.log.line("LLM", "empty answer, retrying");
                     ui.event(AgentEvent::Warning(text::EMPTY_ANSWER_RETRY.to_string()));
                 }
-                Err(e) if attempt < max_retries && retryable(&e) => {
+                Err(e) if attempt < max_retries && retryable(&e, attempt) => {
                     let delay = match &e {
                         LlmError::RateLimited {
                             retry_after: Some(s),
@@ -1038,9 +1038,13 @@ impl<'a, B: ChatBackend, E: Executor> Agent<'a, B, E> {
     }
 }
 
-fn retryable(e: &LlmError) -> bool {
+/// Whether a provider error is worth retrying after `attempts` retries already done.
+/// Network failures (refused, DNS, proxy) get a single retry: waiting 30 s for an obviously
+/// unreachable server helps nobody. 429-concurrency and 5xx get the full backoff.
+fn retryable(e: &LlmError, attempts: u32) -> bool {
     match e {
-        LlmError::RateLimited { .. } | LlmError::Network(_) => true,
+        LlmError::RateLimited { .. } => true,
+        LlmError::Network(_) => attempts == 0,
         LlmError::Server(code, _) => *code >= 500,
         _ => false,
     }
@@ -1723,6 +1727,41 @@ mod tests {
             "x",
         );
         assert_eq!(backend.requests.borrow().len(), 1);
+
+        // A network failure gets a single retry, 5xx the full backoff.
+        let backend = FakeBackend::new(vec![
+            Err(LlmError::Network("refused".into())),
+            Err(LlmError::Network("refused".into())),
+            Ok(answer("jamais")),
+        ]);
+        let mut ui = FakeUi::new(vec![]);
+        let out = run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Plan, "linux"),
+            vec![],
+            &mut ui,
+            "x",
+        );
+        assert_eq!(out, TaskOutcome::ProviderError);
+        assert_eq!(backend.requests.borrow().len(), 2);
+        let backend = FakeBackend::new(vec![
+            Err(LlmError::Server(502, "x".into())),
+            Err(LlmError::Server(503, "x".into())),
+            Err(LlmError::Server(504, "x".into())),
+            Ok(answer("enfin")),
+        ]);
+        let mut ui = FakeUi::new(vec![]);
+        let out = run(
+            &backend,
+            &mut w,
+            settings(PermissionMode::Plan, "linux"),
+            vec![],
+            &mut ui,
+            "x",
+        );
+        assert_eq!(out, TaskOutcome::Done);
+        assert_eq!(backend.requests.borrow().len(), 4);
     }
 
     #[test]

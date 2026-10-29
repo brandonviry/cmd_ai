@@ -13,3 +13,4 @@ doc-site/.source/
 
 # per-agent clones used during parallel implementation
 /.wt/
+/dist/

@@ -45,6 +45,11 @@ jobs:
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: cargo test
         run: cargo test --locked
+      - name: real TUI in a pseudo-terminal (inline viewport + text-mode fallback)
+        if: runner.os != 'Windows'
+        run: |
+          cargo build --locked
+          python3 tests/tui_drive.py target/debug/cmd_ai
 
   guards:
     name: guards (constitution)

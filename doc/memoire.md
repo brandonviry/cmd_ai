@@ -57,4 +57,4 @@ Une fois le plafond de notes atteint, il faut en oublier avant d'en ajouter. Gar
 
 ## En mode éphémère
 
-Si le dossier de cmd_ai n'est pas inscriptible (clé USB en lecture seule), cmd_ai tourne en mode éphémère, signalé dans la barre d'état : la mémoire ne peut pas être enregistrée, et aucune note ne peut être ajoutée ni supprimée. Voir [Portabilité](./portabilite.md).
+Si le dossier de cmd_ai n'est pas inscriptible (clé USB en lecture seule), cmd_ai tourne en mode éphémère, signalé dans la barre d'état : la mémoire ne peut pas être enregistrée. Les notes existantes restent lues, et une note ajoutée (ou oubliée) ne vaut que pour la session en cours : rien n'est écrit, ni sur la clé, ni sur l'hôte. Voir [Portabilité](./portabilite.md).

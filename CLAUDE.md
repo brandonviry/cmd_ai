@@ -37,6 +37,18 @@ cargo build --release                                               # binaire �
 cd doc-site; pnpm install; pnpm build                               # site de doc (jamais `pnpm dev` : géré par le propriétaire)
 ```
 
+Linux local (WSL Ubuntu-22.04, Rust installé dans WSL) — dossier de build dans le home Linux pour ne pas mélanger avec Windows :
+
+```powershell
+wsl.exe -d Ubuntu-22.04 -e sh -c '. $HOME/.cargo/env; cd /mnt/d/cmd_ai/cmd_ia && CARGO_TARGET_DIR=$HOME/cmd_ai-target cargo test --locked'
+```
+
+Test de fumée du vrai TUI dans un pseudo-terminal (Linux/macOS, aussi en CI) : `python3 tests/tui_drive.py <binaire>` — vérifie le TUI inline puis le repli en mode texte quand le terminal ne répond pas aux requêtes de position du curseur. macOS n'est vérifié que par la CI (`.github/workflows/ci.yml`).
+
+## Exceptions connues à la règle « rien sur l'hôte »
+
+PowerShell (5.1 et 7) écrit `StartupProfileData-NonInteractive` dans son dossier de cache à chaque lancement ; aucune option ne le désactive. Documenté dans [`doc/portabilite.md`](doc/portabilite.md) et toléré explicitement par `tests/portability.rs`. Toute nouvelle exception doit suivre le même chemin (doc + test).
+
 ## Règles à ne jamais oublier
 
 - Un seul tool (`run_command`) ; skills via `cmd_ai skill <nom>` intercepté ; aucun nouveau tool.
