@@ -122,8 +122,9 @@ pub enum Approval {
 pub trait Frontend {
     fn event(&mut self, ev: AgentEvent);
     fn approve(&mut self, req: ApprovalRequest) -> Approval;
-    /// Gives the terminal to `program` (e.g. `sudo -v`, an interactive step); returns its exit code.
-    fn handover(&mut self, program: &str, args: &[&str]) -> Option<i32>;
+    /// Gives the terminal to `run` (e.g. `sudo -v`, an interactive step, both spawned by
+    /// `exec`): the frontend suspends its own use of the terminal, calls `run`, then resumes.
+    fn handover(&mut self, run: &mut dyn FnMut() -> Option<i32>) -> Option<i32>;
     /// Set by the frontend when the user cancels (Échap / Ctrl+C).
     fn cancel_flag(&self) -> Arc<AtomicBool>;
 }
